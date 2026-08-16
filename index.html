@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>SHOTGUN KING · 像素复刻 v2</title>
+<meta name="description" content="横版像素国际象棋 Roguelike 爬塔游戏：黑王与他的军火库，鼠标扇形弹道，五种武器，四种模式。">
+<meta name="theme-color" content="#0c0d12">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ShotgunKing">
+<style>
+  :root {
+    --ink: #0c0d12;
+    --panel: #171a24;
+    --panel2: #1f2331;
+    --gold: #e8c34a;
+    --cream: #e8e2cf;
+    --dim: #8d93a8;
+    --red: #d84a4a;
+    --green: #62c86a;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body {
+    height:100%;
+    overflow:hidden;
+    background:#07080c;
+    overscroll-behavior:none;
+    -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
+  }
+  body {
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.015) 0 2px, transparent 2px 4px),
+      radial-gradient(circle at 50% 0%, #141826 0%, #07080c 60%);
+    color:var(--cream);
+    font-family:"Courier New", ui-monospace, monospace;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:8px;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  #stage { position:relative; }
+  canvas#game {
+    display:block;
+    width:960px;
+    height:540px;
+    touch-action:none;
+    image-rendering:pixelated;
+    image-rendering:crisp-edges;
+    background:#10131c;
+    border:4px solid #2a2f3f;
+    box-shadow:
+      0 0 0 4px #05060a,
+      0 0 40px rgba(232,195,74,.08),
+      inset 0 0 0 1px #05060a;
+  }
+  .overlay {
+    position:absolute;
+    inset:4px;
+    background:rgba(5,6,10,.9);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:9px;
+    padding:14px;
+    text-align:center;
+    z-index:10;
+    border:2px solid #2a2f3f;
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .hidden { display:none !important; }
+  .logo {
+    font-size:clamp(16px,3vw,30px);
+    font-weight:bold;
+    letter-spacing:2px;
+    color:var(--gold);
+    text-shadow:3px 3px 0 #000, 0 0 18px rgba(232,195,74,.35);
+  }
+  .subtitle { color:var(--dim); font-size:clamp(10px,1.4vw,13px); }
+  .zh { font-family:"Microsoft YaHei","PingFang SC",sans-serif; line-height:1.75; font-size:clamp(11px,1.6vw,13px); }
+  .zh small { color:var(--dim); font-size:.85em; }
+  .btn {
+    cursor:pointer;
+    background:var(--panel2);
+    color:var(--cream);
+    border:2px solid #3a4052;
+    padding:8px 16px;
+    font-family:inherit;
+    font-size:13px;
+    letter-spacing:1px;
+    box-shadow:0 4px 0 #05060a;
+    transition:transform .06s, background .12s;
+  }
+  .btn:hover { background:#2a2f42; transform:translateY(-2px); }
+  .btn:active { transform:translateY(1px); box-shadow:0 2px 0 #05060a; }
+  .btn.gold { border-color:var(--gold); color:var(--gold); }
+  .modes { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; }
+  .modebtn {
+    width:min(168px, 38vw);
+    padding:9px 7px;
+    display:flex; flex-direction:column; gap:4px;
+    border:2px solid #3a4052; background:var(--panel2); cursor:pointer;
+    color:var(--cream); font-family:inherit;
+    box-shadow:0 4px 0 #05060a;
+  }
+  .modebtn:hover { border-color:var(--gold); transform:translateY(-2px); }
+  .modebtn b { color:var(--gold); font-size:13px; letter-spacing:1px; }
+  .modebtn span { color:var(--dim); font-size:10.5px; font-family:"Microsoft YaHei",sans-serif; }
+  .legend { max-width:660px; color:var(--dim); font-size:clamp(9px,1.3vw,11.5px); }
+  .legend b { color:var(--cream); }
+  .key { display:inline-block; border:1px solid #5a6178; background:#11141f; padding:0 4px; margin:0 2px; }
+  #cards { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; width:100%; }
+  .card {
+    width:min(190px, 26vw);
+    min-height:175px;
+    background:var(--panel);
+    border:3px solid #4a5066;
+    padding:9px;
+    cursor:pointer;
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    text-align:left;
+    box-shadow:0 6px 0 #05060a, inset 0 0 0 1px #000;
+    transition:transform .08s, border-color .12s;
+    font-family:"Courier New", monospace;
+  }
+  .card:hover { transform:translateY(-4px) rotate(-.5deg); }
+  .card .rarity { font-size:10px; letter-spacing:2px; }
+  .card .ename { font-size:14px; font-weight:bold; }
+  .card .cdesc { color:var(--dim); font-size:9.5px; line-height:1.5; }
+  .card .zhdesc { font-family:"Microsoft YaHei",sans-serif; font-size:11px; color:var(--cream); line-height:1.5; }
+  .card.common { border-color:#8d93a8; }
+  .card.common .rarity { color:#aeb4c8; }
+  .card.rare { border-color:#4d9fe8; box-shadow:0 0 18px rgba(77,159,232,.25), 0 6px 0 #05060a; }
+  .card.rare .rarity { color:#7cc0ff; }
+  .card.legendary { border-color:var(--gold); box-shadow:0 0 22px rgba(232,195,74,.3), 0 6px 0 #05060a; }
+  .card.legendary .rarity { color:var(--gold); }
+  .skip {
+    color:var(--dim); background:transparent; border:1px dashed #4a5066;
+    padding:7px 12px; font-size:11px; cursor:pointer;
+  }
+  .stats { color:var(--dim); font-size:11px; }
+  .statline b { color:var(--gold); }
+  #btnInstall { position:absolute; top:12px; right:12px; z-index:11; }
+
+  /* portrait phones: ask for landscape */
+  #rotateHint {
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:99;
+    background:#07080c;
+    color:var(--gold);
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    flex-direction:column;
+    gap:14px;
+    font-size:18px;
+    letter-spacing:2px;
+  }
+  #rotateHint .phone { width:70px; height:110px; border:3px solid var(--gold); border-radius:10px; animation:rot 1.6s ease-in-out infinite; }
+  @keyframes rot { 0%,20% { transform:rotate(0deg); } 60%,100% { transform:rotate(90deg); } }
+  @media (orientation:portrait) and (max-width:900px) {
+    #rotateHint { display:flex; }
+  }
+</style>
+</head>
+<body>
+<div id="rotateHint">
+  <div class="phone"></div>
+  <div>请旋转手机 · 横屏游玩</div>
+  <div style="font-size:12px;color:#8d93a8;">ROTATE TO LANDSCAPE</div>
+</div>
+
+<div id="stage">
+  <canvas id="game" width="480" height="270"></canvas>
+
+  <!-- 开始画面 -->
+  <div id="startOverlay" class="overlay">
+    <button id="btnInstall" class="btn gold hidden">📲 安装到桌面</button>
+    <div class="logo">SHOTGUN KING</div>
+    <div class="subtitle">PIXEL CHESS ROGUELIKE v2 · PWA</div>
+    <div class="zh legend">
+      你是手持军火库的<b>黑王</b>。移动一步或开火一次 = 推进一个回合，白棋按国际象棋规则逼近，<b>碰到你就掉王冠</b>。<br>
+      击杀每层<b>白王</b>通关选卡，爬完 <b>10 层</b>获胜。鼠标/手指指向即瞄准：弹丸在<b>扇形锥角</b>内随机散布。
+    </div>
+    <div class="modes" id="modeBtns">
+      <button class="modebtn" data-mode="classic"><b>经典模式</b><span>五种武器自由切换</span></button>
+      <button class="modebtn" data-mode="musou"><b>无双模式</b><span>弹药无限，永不装弹</span></button>
+      <button class="modebtn" data-mode="obstacle"><b>障碍模式</b><span>随机生成可破坏障碍</span></button>
+      <button class="modebtn" data-mode="sniper"><b>狙击模式</b><span>2° 精度·无限射程·高伤害</span></button>
+    </div>
+    <div class="zh legend">
+      电脑：<span class="key">左键</span>瞄准开火 · <span class="key">右键</span>/<span class="key">WASD</span>移动 · <span class="key">1-5</span>切枪 · <span class="key">R</span>装弹 · <span class="key">空格</span>循环武器<br>
+      手机：<span class="key">点击</span>瞄准开火 · <span class="key">滑动</span>移动 · 底部按钮切枪/装弹
+    </div>
+    <div class="zh legend">
+      武器：<b>1 霰弹枪</b>45°·射程4·5弹丸 ｜ <b>2 集束霰弹</b>15°·射程6·3弹丸 ｜ <b>3 弓箭</b>10°·射程8·无限穿透
+      ｜ <b>4 火焰喷射器</b>25°·射程4·锥内全伤+灼烧 ｜ <b>5 投弹手</b>鼠标投掷·射程3·随机弹跳·3×3爆炸<br>
+      <small>iPhone 添加到主屏幕：Safari「分享」→「添加到主屏幕」；Android 点击右上角「安装到桌面」。</small>
+    </div>
+  </div>
+
+  <!-- 选卡画面 -->
+  <div id="cardOverlay" class="overlay hidden">
+    <div class="logo" style="font-size:clamp(15px,2.6vw,24px);">FLOOR CLEARED · 选择强化</div>
+    <div class="zh stats" id="cardStats"></div>
+    <div id="cards"></div>
+    <button class="btn skip" id="btnSkip">☙ 休整：恢复 1 点生命 ❧</button>
+  </div>
+
+  <!-- 结束画面 -->
+  <div id="endOverlay" class="overlay hidden">
+    <div class="logo" id="endTitle">GAME OVER</div>
+    <div class="zh stats" id="endStats"></div>
+    <div class="zh legend" id="endNote"></div>
+    <button class="btn gold" id="btnAgain">重新开始 ↻</button>
+    <button class="btn hidden" id="btnEndless">继续无尽模式 ∞</button>
+  </div>
+</div>
+<script src="game.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
