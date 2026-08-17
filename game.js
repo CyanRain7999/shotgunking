@@ -3596,10 +3596,12 @@ function refreshStartState() {
   const modeNote = document.getElementById('modeNote');
   if (!play) return;
   const ch = selChapter != null ? CHAPTERS.find(c => c.id === selChapter) : null;
-  // 规则提示：第一章国际象棋 / 第二章中国象棋
+  // 规则提示：第一章国际象棋 / 第二章中国象棋 / 第三章将棋
   if (modeNote) {
     modeNote.textContent = ch
-      ? (ch.id === 2 ? '第二章 · 中国象棋规则（兵/马/相/仕/车/炮/帅 + 精英）' : '第一章 · 国际象棋规则（兵/马/象/车/后/王 + 铭牌标识）')
+      ? (ch.id === 2 ? '第二章 · 中国象棋规则（兵/马/相/仕/车/炮/帅 + 精英）'
+         : ch.id === 3 ? '第三章 · 将棋规则（歩/香/桂/銀/金/角/飛/王 + 成金/打入）'
+         : '第一章 · 国际象棋规则（兵/马/象/车/后/王 + 铭牌标识）')
       : '请先选择章节';
   }
   const ready = ch && selMode != null;

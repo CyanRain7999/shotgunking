@@ -1,7 +1,7 @@
 'use strict';
 /* Service Worker — Shotgun King Pixel
    Cache-first with network fallback; new deploys bump CACHE_NAME. */
-const CACHE_NAME = 'shotgun-king-v16';
+const CACHE_NAME = 'shotgun-king-v17';
 const ASSETS = [
   './',
   './index.html',
