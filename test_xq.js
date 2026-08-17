@@ -26,7 +26,7 @@ const dom = (() => {
     };
   }
   const els = {};
-  const idList = ['game','cardOverlay','cards','cardStats','endOverlay','endTitle','endStats','endNote','btnEndless','btnStart','btnAgain','btnSkip','startOverlay','btnInstall','itemOverlay','itemCards','itemStats','btnItemSkip','chapterList','btnPlay','modeNote'];
+  const idList = ['game','cardOverlay','cards','cardStats','endOverlay','endTitle','endStats','endNote','btnEndless','btnStart','btnAgain','btnSkip','startOverlay','btnInstall','itemOverlay','itemCards','itemStats','btnItemSkip','chapterList','btnPlay','modeNote','advPrev','advVal','advNext','advDesc','tutOverlay','btnTutClose'];
   for (const id of idList) els[id] = makeEl(id);
   const docListeners = {};
   global.document = {
@@ -69,7 +69,7 @@ function invariant(g, label) {
 
 (async () => {
   const hideOverlays = () => {
-    ['startOverlay', 'cardOverlay', 'endOverlay', 'itemOverlay'].forEach(id => dom.els[id].classList.add('hidden'));
+    ['startOverlay', 'cardOverlay', 'endOverlay', 'itemOverlay', 'tutOverlay'].forEach(id => dom.els[id].classList.add('hidden'));
   };
 
   /* ---- xiangqi spawn: random generation, general, elite, no overlap ---- */

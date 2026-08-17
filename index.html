@@ -155,6 +155,27 @@
   .chapter.locked b { color:#6b7188; }
   .chapter.shaken { animation:shake .32s; }
   @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
+  .advpick { display:flex; gap:8px; justify-content:center; align-items:center; }
+  .advarrow {
+    width:min(42px,11vw); height:min(30px,7vh);
+    border:2px solid #3a4052; background:var(--panel2);
+    color:var(--gold); cursor:pointer; font-family:inherit;
+    font-size:14px; font-weight:700; line-height:1;
+    box-shadow:0 3px 0 #05060a;
+    padding:0;
+  }
+  .advarrow:hover { border-color:var(--gold); }
+  .advarrow:active { transform:translateY(1px); box-shadow:0 2px 0 #05060a; }
+  .advval {
+    min-width:min(130px,34vw); height:min(30px,7vh);
+    border:2px solid var(--gold); background:#2a2f42;
+    color:var(--gold); cursor:pointer; font-family:inherit;
+    font-size:13px; font-weight:700; letter-spacing:2px;
+    box-shadow:0 3px 0 #05060a;
+    padding:0 10px;
+  }
+  .advval:hover { box-shadow:0 0 10px rgba(232,195,74,.3), 0 3px 0 #05060a; }
+  #advDesc { max-width:660px; color:var(--dim); font-size:clamp(9px,1.3vw,11.5px); line-height:1.6; }
   #cards { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; width:100%; }
   .card {
     width:min(190px, 26vw);
@@ -243,6 +264,13 @@
       <button class="modebtn" data-mode="endless"><b>无尽模式</b><span>无限循环·敌人逐循环+1生命</span></button>
     </div>
     <div class="zh" id="modeNote">请先选择章节</div>
+    <div class="zh" style="color:#8d93a8;letter-spacing:2px;">— 进阶难度 · ASCENSION —</div>
+    <div class="advpick">
+      <button class="advarrow" id="advPrev" title="降低难度">◀</button>
+      <button class="advval" id="advVal" title="点击切换 无 / X">无</button>
+      <button class="advarrow" id="advNext" title="提高难度">▶</button>
+    </div>
+    <div class="zh" id="advDesc">未开启进阶难度</div>
     <button id="btnPlay" class="hidden">开始战斗 ▶</button>
     <div class="zh legend">
       电脑：<span class="key">左键</span>瞄准开火 · <span class="key">右键</span>/<span class="key">WASD</span>移动 · <span class="key">1-5</span>切枪 · <span class="key">R</span>装弹 · <span class="key">空格</span>循环武器
@@ -282,6 +310,32 @@
     <div class="zh stats" id="endStats"></div>
     <div class="zh legend" id="endNote"></div>
     <button class="btn gold" id="btnAgain">返回主界面 ↺</button>
+  </div>
+  <!-- 将棋规则教程（第三章） -->
+  <div id="tutOverlay" class="overlay hidden">
+    <div class="logo" style="font-size:clamp(14px,2.4vw,22px);">SHOGI RULES · 将棋规则</div>
+    <div class="zh legend" style="max-width:720px;text-align:left;line-height:1.9;color:#c8cdd8;">
+      <b style="color:#e8c34a;">目标：</b>击杀红方王将（带金环的大字「王」）即通关。
+      <br><b style="color:#e8c34a;">走法</b>（红方在上、向前=向下，红字棋子）：
+      <br>· 歩：向前 1 格
+      <br>· 香：向前直行任意格
+      <br>· 桂：向前跳 2 格再横 1 格（可越子）
+      <br>· 銀：前、前斜、后斜
+      <br>· 金：前、前斜×2、横×2、后（不能斜后）
+      <br>· 角：斜线任意
+      <br>· 飛：直线任意
+      <br>· 王：八方各 1 格
+      <br><b style="color:#e8c34a;">成金：</b>红子进入黑方半场自动升级（头顶金冠）——
+      歩/香/桂/銀 变为金将走法，角 → 龙马（角+王步），飛 → 龙王（飛+王步）。
+      <br><b style="color:#e8c34a;">打入：</b>击杀红子获得<b>持驹</b>（面板 HAND 栏，最多 3 枚），
+      按 <b>K</b> 或点击持驹槽，选择空格放入己方棋子（黑色駒形）。打入棋
+      <b>不会移动</b>，是<b>诱饵</b>：离它比离你更近的敌人会被吸引靠近它；
+      打入后的<b>首回合（吸引回合，蓝色光环）不会被吃掉</b>，未引爆则之后会被吃；
+      <b>射击打入棋可将其引爆</b>，造成以其为中心、该棋子走法射程 ×2 的范围伤害；
+      红方吃掉你的棋子后也会获得持驹并<b>打入</b>回来（小心！）。
+      <br><small>本作为 8×8 棋盘改编版；樱花树可摧毁。</small>
+    </div>
+    <button class="btn gold" id="btnTutClose">知道了 ✕</button>
   </div>
 </div>
 <script src="game.js"></script>
