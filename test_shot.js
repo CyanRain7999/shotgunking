@@ -102,7 +102,7 @@ function makeEl(id) {
   };
 }
 const els = {};
-const idList = ['game','cardOverlay','cards','cardStats','endOverlay','endTitle','endStats','endNote','btnEndless','btnStart','btnAgain','btnSkip','startOverlay','btnInstall'];
+const idList = ['game','cardOverlay','cards','cardStats','endOverlay','endTitle','endStats','endNote','btnEndless','btnStart','btnAgain','btnSkip','startOverlay','btnInstall','itemOverlay','itemCards','itemStats','btnItemSkip','chapterList','btnPlay','modeNote'];
 for (const id of idList) els[id] = makeEl(id);
 const BUFFER_W = 1920, BUFFER_H = 1080;      // SCALE=4 backing store (665 css * dpr3)
 const cctx = makeCtx(BUFFER_W, BUFFER_H);

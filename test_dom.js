@@ -38,7 +38,7 @@ function makeCtx() {
 const els = {};
 const docListeners = {};
 const winListeners = {};
-const idList = ['game','cardOverlay','cards','cardStats','endOverlay','endTitle','endStats','endNote','btnEndless','btnStart','btnAgain','btnSkip','startOverlay','btnInstall'];
+const idList = ['game','cardOverlay','cards','cardStats','endOverlay','endTitle','endStats','endNote','btnEndless','btnStart','btnAgain','btnSkip','startOverlay','btnInstall','itemOverlay','itemCards','itemStats','btnItemSkip','chapterList','btnPlay','modeNote'];
 for (const id of idList) els[id] = makeEl(id);
 
 global.document = {

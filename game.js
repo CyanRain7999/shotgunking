@@ -89,6 +89,113 @@ function drawLine(c, x0, y0, x1, y1, color) {
   }
 }
 
+/* ------------------------------------------------------ bilingual (zh) text */
+const CN_NUM = ['零','一','二','三','四','五','六','七','八','九'];
+const MODE_ZH = { classic:'经典', musou:'无双', obstacle:'障碍', sniper:'狙击', endless:'无尽', xiangqi:'象棋' };
+const WEAPON_ZH = {
+  shotgun:'霰弹枪', choke:'集束霰弹', warbow:'弓箭',
+  flamer:'火焰喷射器', bomber:'投弹手', sniper:'狙击枪'
+};
+const WEAPON_ZH_SHORT = {
+  shotgun:'霰弹', choke:'集束', warbow:'弓箭',
+  flamer:'喷火', bomber:'投弹', sniper:'狙击'
+};
+const PT_ZH = { pawn:'兵', knight:'马', bishop:'象', rook:'车', queen:'后', king:'王' };
+const EXTRAS_ZH = {
+  BLAST:'爆裂', BURN:'灼烧', VAMP:'吸血', THORN:'荆棘', SCOPE:'瞄准', CRIT:'暴击',
+  FASTLOAD:'速装', FIRST:'先手', DOUBLE:'双发', SAVE:'保命', SHIELD:'护盾',
+  AURA:'光环', DECREE:'王令', TIME:'裂隙', SLUG:'独头'
+};
+function extrasZh(e) {
+  if (e.indexOf('PIERCE') === 0) return '穿透';
+  if (e.indexOf('ARMOR') === 0) return '护甲';
+  return EXTRAS_ZH[e] || '';
+}
+
+/* 中国象棋规则（第二章）判定：章节 2 即为象棋，模式（经典/无双/障碍/狙击）
+   在两种规则下都可用 */
+function isXQ(g) { return g.chapter === 2; }
+
+/* ------------------------------------------------------------- endless loop */
+/* 循环模式（无尽）：每 10 层为一个循环。
+   - 循环 1（1-10 层）正常递增；
+   - 循环 2（11-20 层）：11 层按 5 层基础出怪，逐层增强，15 层达到 10 层
+     最大出怪并持续到 20 层；
+   - 之后每个新循环都从 5 层基础重新开始、同样在循环第 5 层达最大；
+   - 每完成一个 10 层循环，所有敌人生命值 +1（cycleBonus）；
+   - 我方被动（卡牌）每层照常叠加。 */
+function spawnBase(g) {
+  if (!g.endless) return g.floor;
+  if (g.floor <= 10) return g.floor;
+  const pos = ((g.floor - 1) % 10) + 1;              // 循环内位置 1..10
+  if (pos === 1) return 5;                            // 新循环从 5 层基础开始
+  return Math.min(10, Math.round(5 + (pos - 1) * 1.25)); // 第 5 位（15/25/...）达 10
+}
+function cycleBonus(g) {
+  return g.endless ? Math.floor((g.floor - 1) / 10) : 0;   // 每完成一个 10 层 +1
+}
+
+/* 主线章节：爬塔战斗是主线，当前为第一章（经典塔），第二章为中国象棋，
+   后续章节锁定 */
+const CHAPTERS = [
+  { id: 1, en: 'THE BLACK THRONE', zh: '第一章 · 王座之路', sub: '经典塔 · 共 10 层', unlocked: true },
+  { id: 2, en: 'ACROSS THE RIVER', zh: '第二章 · 楚河汉界', sub: '中国象棋 · 共 10 层', unlocked: true },
+  { id: 3, en: '???', zh: '第三章 · ？？？', sub: '未解锁 · 敬请期待', unlocked: false },
+];
+
+/* ---------------------------------------------------------- xiangqi (ch.2) */
+const XQ_CHAR = { king:'帅', advisor:'仕', bishop:'相', knight:'马', rook:'车', cannon:'炮', pawn:'兵' };
+const XQ_CHAR_BLACK = { king:'将', advisor:'士', bishop:'象', knight:'马', rook:'車', cannon:'砲', pawn:'卒' };
+const ELITE_SUBTYPES = ['rook', 'cannon', 'knight', 'bishop', 'pawn'];
+
+/* 第一章白方棋子辨识度：差异化强调色 + 底座铭牌字母 */
+const PIECE_ACCENT = {
+  pawn:'#8d93a8', knight:'#7cc0ff', bishop:'#c77cf0',
+  rook:'#ff9a4d', queen:'#ffd75e', king:'#d84a4a'
+};
+const PIECE_LETTER = { pawn:'P', knight:'N', bishop:'B', rook:'R', queen:'Q', king:'K' };
+
+/* 主动道具：以撒式多次复用 + 充能；3/6/9 层结束可选取/替换 */
+const ITEMS = [
+  { id:'bomb',    en:'BIG BOMB',    zh:'大炸弹',   desc:'以自身为中心 3×3 爆炸，伤害 3', maxCharge:4 },
+  { id:'freeze',  en:'FREEZE TIME', zh:'时间冻结', desc:'敌方下一回合无法行动',         maxCharge:3 },
+  { id:'barrage', en:'BARRAGE',     zh:'八向齐射', desc:'向 8 个方向各射一发',          maxCharge:4 },
+  { id:'heal',    en:'CROWN HEAL',  zh:'王冠治疗', desc:'立即恢复 2 点王冠',            maxCharge:3 },
+  { id:'purge',   en:'ROYAL PURGE', zh:'御前肃清', desc:'随机消灭一名非将非精英敌人',   maxCharge:5 },
+];
+function itemById(id) { return ITEMS.find(i => i.id === id); }
+
+/* 中文使用正常系统字体（黑体优先、宋体兜底）直接绘制，清晰可读；
+   英文保持像素艺术字体。字号按 scale 缩放（1 = 9px）。离屏 canvas 不可用
+   （Node 测试环境）时安全降级为只画英文。 */
+const CJK_FONT_PX = 9;
+const CJK_FONT_FAMILY = '"Microsoft YaHei","PingFang SC","SimHei","Heiti SC","SimSun","WenQuanYi Micro Hei","Noto Sans CJK SC",sans-serif';
+
+function drawTextCJK(c, text, x, y, color, scale) {
+  scale = scale || 1;
+  const size = Math.round(CJK_FONT_PX * scale);
+  c.fillStyle = color;
+  try {
+    c.font = size + 'px ' + CJK_FONT_FAMILY;
+    c.textBaseline = 'top';
+    c.textAlign = 'left';
+    c.fillText(String(text), Math.round(x), Math.round(y));
+  } catch (e) { /* 测试环境无 fillText：静默降级 */ }
+  return String(text).length * size;
+}
+
+/* 英文（像素字体）+ 中文（正常字体）同行绘制，底部对齐；返回绘制宽度 */
+function drawBilingual(c, en, zh, x, y, enCol, zhCol, enScale, zhScale) {
+  enScale = enScale || 1; zhScale = zhScale || 1;
+  let cx = x + drawText(c, en, x, y, enCol, enScale);
+  if (zh) {
+    cx += 4;
+    drawTextCJK(c, zh, cx, y + enScale * 5 - CJK_FONT_PX * zhScale, zhCol || '#8d93a8', zhScale);
+    cx += zh.length * CJK_FONT_PX * zhScale;
+  }
+  return cx - x;
+}
+
 /* ------------------------------------------------------------- upgrade cards */
 const CARDS = [
   { id:'bandolier',  rarity:'common', en:'Bandolier',     zh:'弹药带',
@@ -184,12 +291,21 @@ function defaultStats() {
   };
 }
 
-function newGame(modeId) {
+function newGame(modeId, chapter) {
   modeId = modeId || 'classic';
+  if (modeId === 'xiangqi') { modeId = 'classic'; chapter = chapter || 2; }   // 兼容旧调用
   const g = {
     modeId,
+    chapter: chapter || 1,           // 主线章节：1 = 国际象棋，2 = 中国象棋
     musou: modeId === 'musou',
     obstacleMode: modeId === 'obstacle',
+    remnants: [],                  // 残躯栏（最多 2）：击杀掉落，一次性黑棋行进
+    activeItem: null,              // 主动道具 { id, charge }（以撒式充能复用）
+    relicMode: null,               // 残躯瞄准模式 { type, slot }
+    relicGhost: null,              // 残躯行进幽灵动画
+    frozen: false,                 // 时间冻结：敌方跳过一回合
+    itemRowY: -1,                  // 面板热区（点击使用道具/残躯）
+    relicRowY: -1,
     floor: 1,
     turn: 0,
     actionNo: 0,
@@ -198,7 +314,7 @@ function newGame(modeId) {
     phase: 'player',
     over: false,
     won: false,
-    endless: false,
+    endless: modeId === 'endless',     // 无尽模式 = 独立模式：从 1 层起按循环规则无限爬
     floorCleared: false,
     lastAim: -90,                    // degrees; -90 = up (screen y down)
     shield: 0,
@@ -229,7 +345,11 @@ function activeWeapon(g) { return g.weapons[g.weapon]; }
 
 /* -------------------------------------------------------------- board utils */
 function pieceAt(g, x, y) {
-  for (const p of g.pieces) if (p.x === x && p.y === y) return p;
+  for (const p of g.pieces) {
+    if (p.x === x && p.y === y) return p;
+    // 精英棋子：落点在交叉线（格点），占据以其为中心的 2×2 格子
+    if (p.e && x >= p.x - 1 && x <= p.x && y >= p.y - 1 && y <= p.y) return p;
+  }
   return null;
 }
 function obstacleAt(g, x, y) {
@@ -239,34 +359,37 @@ function obstacleAt(g, x, y) {
 function blockedAt(g, x, y) { return pieceAt(g, x, y) || obstacleAt(g, x, y); }
 function whiteKing(g) { return g.pieces.find(p => p.type === 'king'); }
 function pieceValue(type) {
-  return { pawn:1, knight:3, bishop:3, rook:5, queen:9, king:20 }[type] || 1;
+  return { pawn:1, knight:3, bishop:3, rook:5, queen:9, king:20, cannon:4, advisor:2, elite:15 }[type] || 1;
 }
 function baseHp(type) {
-  return { pawn:1, knight:2, bishop:2, rook:3, queen:4, king:1 }[type] || 1;
+  return { pawn:1, knight:2, bishop:2, rook:3, queen:4, king:1, cannon:2, advisor:2, elite:4 }[type] || 1;
 }
 function baseDmg(type) {
-  return { pawn:1, knight:2, bishop:2, rook:2, queen:3, king:1 }[type] || 1;
+  return { pawn:1, knight:2, bishop:2, rook:2, queen:3, king:1, cannon:2, advisor:1, elite:2 }[type] || 1;
 }
 function hpScale(f) { return 1 + Math.floor((f - 1) / 4); }
 function enemyHp(type, f) { return baseHp(type) * hpScale(f); }
 function enemyDmg(type, f) { return baseDmg(type) + (f >= 6 ? 1 : 0); }
 
-function msg(g, text) {
-  g.log.push({ text, turn: g.turn, t: now() });
+function msg(g, text, zh) {
+  g.log.push({ text, zh, turn: g.turn, t: now() });
   if (g.log.length > 30) g.log.shift();
 }
 
 /* ------------------------------------------------------------ floor spawning */
 function spawnPiece(g, type, x, y, opts) {
   const o = opts || {};
-  const f = g.floor;
+  const f = spawnBase(g);                    // 循环模式下按循环难度基础层出怪
+  const cb = cycleBonus(g);                  // 每完成一个 10 层循环敌人 +1 生命
   const p = {
     id: nextPieceId++,
     type, x, y,
-    hp: o.hp != null ? o.hp : enemyHp(type, f),
-    maxHp: o.hp != null ? o.hp : enemyHp(type, f),
+    hp: o.hp != null ? o.hp : enemyHp(type, f) + cb,
+    maxHp: o.hp != null ? o.hp : enemyHp(type, f) + cb,
     dmg: o.dmg != null ? o.dmg : enemyDmg(type, f),
     boss: !!o.boss,
+    e: !!o.e,                      // 精英棋子：占 2×2 格、位于交叉点
+    subtype: o.subtype,
     burned: false,
     slowed: false,
     moving: null
@@ -286,7 +409,7 @@ function emptyCellsIn(g, rows) {
 }
 
 function spawnObstacles(g) {
-  const f = g.floor;
+  const f = spawnBase(g);                 // 循环模式按难度基础层
   const n = Math.min(14, 7 + Math.floor(f / 2));
   let placed = 0, tries = 0;
   while (placed < n && tries < 300) {
@@ -302,6 +425,8 @@ function spawnObstacles(g) {
 
 function spawnFloor(g) {
   const f = g.floor;
+  const effF = spawnBase(g);              // 循环模式：按循环内难度基础层出怪
+  const cb = cycleBonus(g);
   g.pieces = [];
   g.obstacles = [];
   g.floorCleared = false;
@@ -313,29 +438,32 @@ function spawnFloor(g) {
   g.tracers = [];
   g.bomb = null;
 
+  if (isXQ(g)) { spawnXiangqiFloor(g); return; }
+
   if (g.stats.shieldPerFloor) g.shield = Math.min(2, g.shield + 1);
 
-  const kingHp = f === 10 && !g.endless ? 12 : (f > 10 ? 10 + Math.floor((f - 10) * 1.5) : 2 + Math.floor((f - 1) / 2));
+  let kingHp = effF === 10 ? 12 : 2 + Math.floor((effF - 1) / 2);
+  kingHp += cb;                            // 每完成一个 10 层循环敌人 +1 生命
   spawnPiece(g, 'king', ri(0, 7), ri(0, 1), { hp: kingHp, dmg: 1 });
 
   const pool = ['pawn'];
-  if (f >= 2) pool.push('knight');
-  if (f >= 3) pool.push('bishop');
-  if (f >= 4) pool.push('rook');
-  if (f >= 6) pool.push('queen');
-  let count = Math.min(9, Math.floor(2 + f * 0.75 + (f >= 4 ? 1 : 0) + (f >= 7 ? 1 : 0)));
-  const hasBoss = f >= 5 && f % 5 === 0;
+  if (effF >= 2) pool.push('knight');
+  if (effF >= 3) pool.push('bishop');
+  if (effF >= 4) pool.push('rook');
+  if (effF >= 6) pool.push('queen');
+  let count = Math.min(9, Math.floor(2 + effF * 0.75 + (effF >= 4 ? 1 : 0) + (effF >= 7 ? 1 : 0)));
+  const hasBoss = effF >= 5 && effF % 5 === 0;
   if (hasBoss) count = Math.max(3, count - 2);
-  if (f === 10) count = 6;
+  if (effF === 10) count = 6;
 
   const typeWeight = () => {
     const w = {};
     for (const t of pool) {
-      if (t === 'pawn') w[t] = Math.max(1, 6 - f);
+      if (t === 'pawn') w[t] = Math.max(1, 6 - effF);
       else if (t === 'knight') w[t] = 3;
       else if (t === 'bishop') w[t] = 2;
-      else if (t === 'rook') w[t] = f >= 5 ? 2 : 1;
-      else if (t === 'queen') w[t] = f >= 8 ? 2 : 1;
+      else if (t === 'rook') w[t] = effF >= 5 ? 2 : 1;
+      else if (t === 'queen') w[t] = effF >= 8 ? 2 : 1;
     }
     return w;
   };
@@ -347,7 +475,8 @@ function spawnFloor(g) {
     return 'pawn';
   };
 
-  const rows = f >= 6 ? [0, 1, 2, 3, 4] : [0, 1, 2, 3];
+  // 白方棋子只允许在己方半场（y 0-3）开局，绝不越过中场线进入黑方半场
+  const rows = [0, 1, 2, 3];
   const cells = emptyCellsIn(g, rows);
   for (let i = 0; i < count && cells.length > 0; i++) {
     const c = cells.pop();
@@ -355,8 +484,8 @@ function spawnFloor(g) {
   }
 
   if (hasBoss) {
-    const btype = f === 10 ? 'queen' : (f % 10 === 5 ? 'rook' : 'queen');
-    const boss = spawnPiece(g, btype, ri(2, 5), 0, { boss: true, hp: 9 + f, dmg: 3 });
+    const btype = effF === 10 ? 'queen' : (effF % 10 === 5 ? 'rook' : 'queen');
+    const boss = spawnPiece(g, btype, ri(2, 5), 0, { boss: true, hp: 9 + effF + cb, dmg: 3 });
     const conflict = g.pieces.find(p => p !== boss && p.x === boss.x && p.y === boss.y);
     if (conflict) {
       const alt = emptyCellsIn(g, [0, 1, 2, 3])[0];
@@ -371,11 +500,140 @@ function spawnFloor(g) {
     if (targets.length) {
       const t = targets[ri(0, targets.length - 1)];
       killPiece(g, t, 'decree', true);
-      msg(g, 'ROYAL DECREE: A WHITE PIECE DESERTED!');
+      msg(g, 'ROYAL DECREE: A WHITE PIECE DESERTED!', '御前王令：一名白棋叛逃');
     }
   }
 
-  msg(g, 'FLOOR ' + f + ' - KILL THE WHITE KING');
+  msg(g, 'FLOOR ' + f + ' - KILL THE WHITE KING', '第 ' + f + ' 层 · 击杀白王');
+  g.phase = 'player';
+}
+
+/* --------------------------------------------------- xiangqi floor (ch.2) */
+/* 与国际象棋同款的随机生成：每层随机数量、类型随楼层解锁加权；
+   兵只在兵行线（y 2..3）、仕/帅限九宫、其余在上半场；精英扫描空位，
+   保证 2×2 覆盖区不与任何棋子重叠。 */
+function spawnXiangqiFloor(g) {
+  const f = g.floor;
+  const effF = spawnBase(g);              // 循环模式：按循环内难度基础层出怪
+  const cb = cycleBonus(g);
+  g.pieces = [];
+  g.obstacles = [];
+  g.floorCleared = false;
+  g.player.x = 4; g.player.y = 7; g.player.moving = null;
+  g.insuranceUsed = false;
+  g.freeMoveUsed = false;
+  g.flashes = [];
+  g.floats = [];
+  g.tracers = [];
+  g.bomb = null;
+
+  if (g.stats.shieldPerFloor) g.shield = Math.min(2, g.shield + 1);
+
+  let kingHp = effF === 10 ? 12 : 2 + Math.floor((effF - 1) / 2);
+  kingHp += cb;                            // 每完成一个 10 层循环敌人 +1 生命
+  // 红帅：九宫内随机
+  spawnPiece(g, 'king', ri(3, 5), ri(0, 2), { hp: kingHp, dmg: 1 });
+
+  const pool = ['pawn', 'advisor', 'bishop', 'knight'];
+  if (effF >= 2) pool.push('cannon');
+  if (effF >= 3) pool.push('rook');
+  let count = Math.min(9, Math.floor(2 + effF * 0.75 + (effF >= 4 ? 1 : 0) + (effF >= 7 ? 1 : 0)));
+  const hasBoss = effF >= 5 && effF % 5 === 0;
+  if (hasBoss) count = Math.max(3, count - 2);
+  if (effF === 10) count = 6;
+
+  const typeWeight = () => {
+    const w = {};
+    for (const t of pool) {
+      if (t === 'pawn') w[t] = Math.max(1, 5 - effF);
+      else if (t === 'advisor') w[t] = 2;
+      else if (t === 'bishop') w[t] = 2;
+      else if (t === 'knight') w[t] = 3;
+      else if (t === 'cannon') w[t] = 2;
+      else if (t === 'rook') w[t] = effF >= 5 ? 2 : 1;
+    }
+    return w;
+  };
+  const pickType = () => {
+    const w = typeWeight();
+    const total = Object.values(w).reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (const t of pool) { r -= w[t]; if (r <= 0) return t; }
+    return 'pawn';
+  };
+  // 按类型的可用生成格：兵在兵行线；仕在九宫；其余上半场
+  const cellsFor = (t) => {
+    const cells = [];
+    if (t === 'pawn') {
+      for (const y of [2, 3]) for (let x = 0; x < 8; x++) if (!blockedAt(g, x, y)) cells.push({ x, y });
+    } else if (t === 'advisor' || t === 'king') {
+      for (let y = 0; y <= 2; y++) for (let x = 3; x <= 5; x++) if (!blockedAt(g, x, y)) cells.push({ x, y });
+    } else {
+      for (const y of [0, 1, 2, 3]) for (let x = 0; x < 8; x++) if (!blockedAt(g, x, y)) cells.push({ x, y });
+    }
+    return shuffle(cells);
+  };
+
+  for (let i = 0; i < count; i++) {
+    const t = pickType();
+    const cells = cellsFor(t);
+    if (!cells.length) continue;
+    const c = cells.pop();
+    spawnPiece(g, t, c.x, c.y);
+  }
+
+  if (hasBoss) {
+    // Boss 层：额外一只大将（大车），上半场空位
+    const cells = cellsFor('rook');
+    if (cells.length) {
+      const c = cells.pop();
+      spawnPiece(g, 'rook', c.x, c.y, { boss: true, hp: 9 + effF + cb, dmg: 3 });
+    }
+  }
+
+  // 障碍模式：随机可破坏砖墙（在精英之前生成，精英扫描时自动避让）
+  if (g.obstacleMode) spawnObstacles(g);
+
+  // 精英棋子：交叉点（格点）上的 2×2 单位。扫描上半场格点，覆盖区必须
+  // 完全为空（不与其他棋子重叠），随机取一个；无解则退而求其次（跨河线），
+  // 再不行就不生成（保证永不重叠）。
+  const subtype = ELITE_SUBTYPES[ri(0, ELITE_SUBTYPES.length - 1)];
+  const ehp = 3 + effF + (effF >= 5 ? 2 : 0) + cb;
+  // 精英落点在交叉线（格点），占据以其为中心的 2×2：扫描格点 1..7，
+  // 覆盖区（gx-1..gx × gy-1..gy）必须完全为空（不与其他棋子重叠）
+  const findEliteSpot = (maxEy) => {
+    const cands = [];
+    for (let ey = 1; ey <= maxEy; ey++) {
+      for (let ex = 1; ex <= 7; ex++) {
+        let ok = true;
+        for (let dy = 0; dy <= 1 && ok; dy++) {
+          for (let dx = 0; dx <= 1; dx++) {
+            if (!inB(ex - 1 + dx, ey - 1 + dy) || blockedAt(g, ex - 1 + dx, ey - 1 + dy)) { ok = false; break; }
+          }
+        }
+        if (ok) cands.push({ ex, ey });
+      }
+    }
+    return cands;
+  };
+  let spots = findEliteSpot(3);                     // 优先纯上半场（覆盖 y 0..3）
+  if (!spots.length) spots = findEliteSpot(4);      // 兜底：可跨河线
+  if (spots.length) {
+    const s = spots[ri(0, spots.length - 1)];
+    const e = spawnPiece(g, 'elite', s.ex, s.ey, { hp: ehp, dmg: 2, boss: true });
+    e.e = true; e.subtype = subtype;
+  }
+
+  if (g.stats.decree) {
+    const targets = g.pieces.filter(p => p.type !== 'king' && !p.e);
+    if (targets.length) {
+      const t = targets[ri(0, targets.length - 1)];
+      killPiece(g, t, 'decree', true);
+      msg(g, 'ROYAL DECREE: A RED PIECE DESERTED!', '御前王令：一名红棋叛逃');
+    }
+  }
+
+  msg(g, 'FLOOR ' + f + ' - KILL THE RED GENERAL', '第 ' + f + ' 层 · 击杀红帅');
   g.phase = 'player';
 }
 
@@ -391,16 +649,26 @@ function legalPlayerMoves(g) {
   return out;
 }
 
-function legalEnemyMoves(g, p) {
+/* 敌方合法走法核心：vacating = 本回合要离开的棋子格（可被其他白棋进入），
+   decided = 已定下落的棋子格（对其他白棋封闭）。公开版 legalEnemyMoves 即
+   空集合版本，语义与原实现完全一致。 */
+function legalEnemyMovesCore(g, p, vacating, decided) {
   const moves = [];
   const P = g.player;
+  const key = (x, y) => x + ',' + y;
+  const blocked = (x, y) => {
+    const k = key(x, y);
+    if (decided.has(k)) return true;
+    if (vacating.has(k)) return false;
+    return blockedAt(g, x, y);
+  };
   const push = (x, y) => {
     if (!inB(x, y)) return;
     if (x === P.x && y === P.y) {
       if (p.type !== 'king') moves.push({ x, y, capture: true });
       return;
     }
-    if (!blockedAt(g, x, y)) moves.push({ x, y, capture: false });
+    if (!blocked(x, y)) moves.push({ x, y, capture: false });
   };
   const slide = (dirs) => {
     for (const [dx, dy] of dirs) {
@@ -410,7 +678,7 @@ function legalEnemyMoves(g, p) {
           if (p.type !== 'king') moves.push({ x, y, capture: true });
           break;
         }
-        if (blockedAt(g, x, y)) break;
+        if (blocked(x, y)) break;
         moves.push({ x, y, capture: false });
         x += dx; y += dy;
       }
@@ -419,11 +687,25 @@ function legalEnemyMoves(g, p) {
 
   switch (p.type) {
     case 'pawn': {
-      if (inB(p.x, p.y + 1) && !blockedAt(g, p.x, p.y + 1) && !(P.x === p.x && P.y === p.y + 1)) {
-        moves.push({ x: p.x, y: p.y + 1, capture: false });
+      if (isXQ(g)) {
+        // 兵：向前一步；过河（y>=4）后可横走；不能后退
+        const y1 = p.y + 1;
+        const fwdBlocked = (inB(p.x, y1) && blocked(p.x, y1)) || (P.x === p.x && P.y === y1);
+        if (inB(p.x, y1) && !fwdBlocked) moves.push({ x: p.x, y: y1, capture: false });
+        if (p.y >= 4) {
+          for (const dx of [-1, 1]) {
+            const lx = p.x + dx;
+            if (!inB(lx, p.y)) continue;
+            if (lx === P.x && p.y === P.y) { moves.push({ x: lx, y: p.y, capture: true }); continue; }
+            if (!blocked(lx, p.y)) moves.push({ x: lx, y: p.y, capture: false });
+          }
+        }
+        break;
       }
-      if (p.y <= 1 && !blockedAt(g, p.x, p.y + 1) && !(P.x === p.x && P.y === p.y + 1) &&
-          !blockedAt(g, p.x, p.y + 2) && !(P.x === p.x && P.y === p.y + 2)) {
+      const y1 = p.y + 1;
+      const fwdBlocked = (inB(p.x, y1) && blocked(p.x, y1)) || (P.x === p.x && P.y === y1);
+      if (inB(p.x, y1) && !fwdBlocked) moves.push({ x: p.x, y: y1, capture: false });
+      if (p.y <= 1 && !fwdBlocked && !(blocked(p.x, p.y + 2) || (P.x === p.x && P.y === p.y + 2))) {
         moves.push({ x: p.x, y: p.y + 2, capture: false });
       }
       for (const dx of [-1, 1]) {
@@ -433,18 +715,82 @@ function legalEnemyMoves(g, p) {
       }
       break;
     }
-    case 'knight':
+    case 'knight': {
+      if (isXQ(g)) {
+        // 马：日字走，蹩马腿
+        for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) {
+          const lx = p.x + dx, ly = p.y + dy;
+          if (!inB(lx, ly)) continue;
+          const legX = Math.abs(dx) === 2 ? p.x + dx / 2 : p.x;
+          const legY = Math.abs(dy) === 2 ? p.y + dy / 2 : p.y;
+          if (blocked(legX, legY) || (legX === P.x && legY === P.y)) continue;
+          push(lx, ly);
+        }
+        break;
+      }
       for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) push(p.x + dx, p.y + dy);
       break;
-    case 'bishop': slide([[1,1],[1,-1],[-1,1],[-1,-1]]); break;
+    }
+    case 'bishop': {
+      if (isXQ(g)) {
+        // 相：田字走，塞象眼，不过河（红方上半场 y<=3）
+        for (const [dx, dy] of [[2,2],[2,-2],[-2,2],[-2,-2]]) {
+          const lx = p.x + dx, ly = p.y + dy;
+          if (!inB(lx, ly) || ly > 3) continue;
+          const ex = p.x + dx / 2, ey = p.y + dy / 2;
+          if (blocked(ex, ey) || (ex === P.x && ey === P.y)) continue;
+          push(lx, ly);
+        }
+        break;
+      }
+      slide([[1,1],[1,-1],[-1,1],[-1,-1]]); break;
+    }
+    case 'cannon': {
+      // 炮：直线移动（路径全空）；吃子须隔一个炮架
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        let x = p.x + dx, y = p.y + dy, seen = false;
+        while (inB(x, y)) {
+          const t = blocked(x, y);
+          if (!seen) {
+            if (x === P.x && y === P.y) break;          // 不能停在玩家格
+            if (t) seen = true;
+            else moves.push({ x, y, capture: false });
+          } else {
+            if (x === P.x && y === P.y) { moves.push({ x, y, capture: true, remote: true }); break; }
+            break;                                       // 第二子（红棋）不可吃
+          }
+          x += dx; y += dy;
+        }
+      }
+      break;
+    }
+    case 'advisor': {
+      // 仕：九宫内斜走一格（红方九宫 x 3..5, y 0..2）
+      for (const [dx, dy] of [[1,1],[1,-1],[-1,1],[-1,-1]]) {
+        const lx = p.x + dx, ly = p.y + dy;
+        if (lx < 3 || lx > 5 || ly < 0 || ly > 2) continue;
+        push(lx, ly);
+      }
+      break;
+    }
     case 'rook':   slide([[1,0],[-1,0],[0,1],[0,-1]]); break;
     case 'queen':  slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]); break;
     case 'king': {
+      if (isXQ(g)) {
+        // 将：九宫内直走一格（红方九宫 x 3..5, y 0..2）
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const x = p.x + dx, y = p.y + dy;
+          if (x < 3 || x > 5 || y < 0 || y > 2) continue;
+          if (x === P.x && y === P.y) continue;
+          if (!blocked(x, y)) moves.push({ x, y, capture: false });
+        }
+        break;
+      }
       for (const [dx, dy] of DIRS) {
         const x = p.x + dx, y = p.y + dy;
         if (!inB(x, y)) continue;
         if (x === P.x && y === P.y) continue;
-        if (!blockedAt(g, x, y)) moves.push({ x, y, capture: false });
+        if (!blocked(x, y)) moves.push({ x, y, capture: false });
       }
       break;
     }
@@ -452,8 +798,11 @@ function legalEnemyMoves(g, p) {
   return moves;
 }
 
-function pickEnemyMove(g, p) {
-  const moves = legalEnemyMoves(g, p);
+function legalEnemyMoves(g, p) {
+  return legalEnemyMovesCore(g, p, new Set(), new Set());
+}
+
+function pickEnemyMoveFrom(g, p, moves) {
   if (!moves.length) return null;
   if (p.type === 'king') {
     // flee the black king, avoid being adjacent, stay out of his longest weapon range
@@ -477,10 +826,124 @@ function pickEnemyMove(g, p) {
   return best;
 }
 
+function pickEnemyMove(g, p) {
+  return pickEnemyMoveFrom(g, p, legalEnemyMoves(g, p));
+}
+
+/* --------------------------------------------------------- elite piece */
+/* 精英棋子位于交叉线（格点）上，占据 2×2 格子，按中国象棋规则在点线上
+   移动；攻击范围扩大：覆盖 4 格，覆盖到玩家即造成伤害，精英炮可隔山远程
+   攻击玩家。 */
+function playerInElite(g, e) {
+  // 精英占据以格点为中心的 2×2：玩家在其落点一圈格子内即被攻击
+  return g.player.x >= e.x - 1 && g.player.x <= e.x && g.player.y >= e.y - 1 && g.player.y <= e.y;
+}
+function eliteAreaHas(g, e, gx, gy, includePlayer) {
+  // 格点 (gx,gy) 的 2×2 覆盖区（gx-1..gx × gy-1..gy）是否含阻挡，自身重叠除外
+  for (let dy = 0; dy <= 1; dy++) {
+    for (let dx = 0; dx <= 1; dx++) {
+      const cx = gx - 1 + dx, cy = gy - 1 + dy;
+      if (!inB(cx, cy)) return true;
+      if (cx >= e.x - 1 && cx <= e.x && cy >= e.y - 1 && cy <= e.y) continue;
+      if (pieceAt(g, cx, cy)) return true;
+      if (obstacleAt(g, cx, cy)) return true;
+      if (includePlayer && g.player.x === cx && g.player.y === cy) return true;
+    }
+  }
+  return false;
+}
+function eliteCoverClear(g, e, gx, gy) {
+  for (let dy = 0; dy <= 1; dy++) {
+    for (let dx = 0; dx <= 1; dx++) {
+      const cx = gx - 1 + dx, cy = gy - 1 + dy;
+      if (!inB(cx, cy)) return false;
+      if (cx >= e.x - 1 && cx <= e.x && cy >= e.y - 1 && cy <= e.y) continue;
+      if (pieceAt(g, cx, cy)) return false;
+      if (obstacleAt(g, cx, cy)) return false;
+    }
+  }
+  return true;
+}
+function eliteMoves(g, e) {
+  const out = [];
+  const add = (gx, gy) => {
+    if (gx < 1 || gx > 7 || gy < 1 || gy > 7) return;   // 2×2 必须完整在棋盘内
+    if (!eliteCoverClear(g, e, gx, gy)) return;
+    out.push({ ex: gx, ey: gy, capture: playerInElite(g, { x: gx, y: gy }), remote: false });
+  };
+  const s = e.subtype;
+  if (s === 'rook' || s === 'cannon') {
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      let gx = e.x + dx, gy = e.y + dy, seen = false;
+      while (gx >= 1 && gx <= 7 && gy >= 1 && gy <= 7) {
+        const capPlayer = playerInElite(g, { x: gx, y: gy });
+        if (s === 'rook') {
+          if (capPlayer) { out.push({ ex: gx, ey: gy, capture: true, remote: false }); break; }
+          if (eliteAreaHas(g, e, gx, gy, false)) break;      // 车遇阻停
+          if (eliteCoverClear(g, e, gx, gy)) out.push({ ex: gx, ey: gy, capture: false, remote: false });
+        } else {
+          if (!seen) {
+            if (capPlayer) { out.push({ ex: gx, ey: gy, capture: true, remote: false }); break; }  // 直接覆盖玩家
+            if (eliteAreaHas(g, e, gx, gy, false)) { seen = true; gx += dx; gy += dy; continue; }   // 炮架
+            if (eliteCoverClear(g, e, gx, gy)) out.push({ ex: gx, ey: gy, capture: false, remote: false });
+          } else {
+            if (capPlayer) { out.push({ ex: gx, ey: gy, capture: true, remote: true }); }           // 隔山打
+            break;
+          }
+        }
+        gx += dx; gy += dy;
+      }
+    }
+  } else if (s === 'knight') {
+    for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) {
+      const gx = e.x + dx, gy = e.y + dy;
+      if (gx < 1 || gx > 7 || gy < 1 || gy > 7) continue;
+      const legX = Math.abs(dx) === 2 ? e.x + dx / 2 : e.x;
+      const legY = Math.abs(dy) === 2 ? e.y + dy / 2 : e.y;
+      if (eliteAreaHas(g, e, legX, legY, false)) continue;   // 蹩马腿
+      add(gx, gy);
+    }
+  } else if (s === 'bishop') {
+    for (const [dx, dy] of [[2,2],[2,-2],[-2,2],[-2,-2]]) {
+      const gx = e.x + dx, gy = e.y + dy;
+      if (gx < 1 || gx > 7 || gy < 1 || gy > 7 || gy > 3) continue;  // 相不过河（覆盖 y<=3）
+      const ex = e.x + dx / 2, ey = e.y + dy / 2;
+      if (eliteAreaHas(g, e, ex, ey, false)) continue;              // 塞象眼
+      add(gx, gy);
+    }
+  } else if (s === 'pawn') {
+    add(e.x, e.y + 1);                            // 前进
+    if (e.y >= 4) { for (const dx of [-1, 1]) add(e.x + dx, e.y); } // 过河（覆盖跨河界）后横走
+  }
+  return out;
+}
+function elitePickMove(g, e) {
+  const moves = eliteMoves(g, e);
+  if (!moves.length) return null;
+  let best = null, bestScore = -Infinity;
+  const P = g.player;
+  for (const m of moves) {
+    const score = m.capture ? 10000 + Math.random() * 2
+      : -Math.hypot(m.ex - (P.x + 0.5), m.ey - (P.y + 0.5)) * 10 + Math.random() * 3;
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
 function threatMap(g) {
   const map = [];
   for (let y = 0; y < 8; y++) map.push(new Array(8).fill(false));
   for (const p of g.pieces) {
+    if (p.e) {
+      // 精英：落点一圈格子（2×2）都是威胁
+      for (let dy = 0; dy <= 1; dy++) {
+        for (let dx = 0; dx <= 1; dx++) {
+          const cx = p.x - 1 + dx, cy = p.y - 1 + dy;
+          if (inB(cx, cy)) map[cy][cx] = true;
+        }
+      }
+      continue;
+    }
     if (p.type === 'king') continue;
     for (const m of legalEnemyMoves(g, p)) {
       if (!m.capture) map[m.y][m.x] = true;
@@ -490,8 +953,8 @@ function threatMap(g) {
 }
 
 /* ------------------------------------------------------------- damage & kill */
-function spawnFloat(g, x, y, text, color) {
-  g.floats.push({ x, y, text, color, t0: now(), life: 900 });
+function spawnFloat(g, x, y, text, color, zh) {
+  g.floats.push({ x, y, text, zh, color, t0: now(), life: 900 });
 }
 function addShake(g, n) { g.shake = Math.min(6, g.shake + n); }
 
@@ -501,28 +964,38 @@ function killPiece(g, piece, src, silent) {
   g.pieces.splice(i, 1);
   g.kills++;
   g.score += pieceValue(piece.type) * 10;
-  spawnFloat(g, piece.x, piece.y, 'KILL', '#ffd75e');
-  if (!silent) msg(g, piece.type.toUpperCase() + ' FALLS!');
-  if (src !== 'decree') {
+  spawnFloat(g, piece.x, piece.y, 'KILL', '#ffd75e', '击杀');
+  if (!silent) msg(g, piece.type.toUpperCase() + ' FALLS!', (PT_ZH[piece.type] || '') + ' 阵亡');
+  if (src !== 'decree' && src !== 'remnant') {
+    // 残躯掉落：对应棋子类型（精英掉落其子类型），栏位最多 2
+    const rt = piece.e ? piece.subtype : piece.type;
+    if (g.remnants.length < 2) {
+      g.remnants.push({ type: rt });
+      spawnFloat(g, g.player.x, g.player.y, '+RELIC', '#7cc0ff', '残躯 +1');
+    }
+    // 主动道具充能：击杀 +1，精英 +2
+    if (g.activeItem) {
+      g.activeItem.charge = Math.min(itemById(g.activeItem.id).maxCharge, g.activeItem.charge + (piece.e ? 2 : 1));
+    }
     if (g.stats.lifesteal && g.player.hp < g.player.maxHp) {
       g.player.hp = Math.min(g.player.maxHp, g.player.hp + 1);
-      spawnFloat(g, g.player.x, g.player.y, '+1 HP', '#62c86a');
+      spawnFloat(g, g.player.x, g.player.y, '+1 HP', '#62c86a', '+1 生命');
     }
     if (g.stats.bountyChance > 0 && Math.random() < g.stats.bountyChance && g.player.hp < g.player.maxHp) {
       g.player.hp = Math.min(g.player.maxHp, g.player.hp + 1);
-      spawnFloat(g, g.player.x, g.player.y, 'BOUNTY +1', '#62c86a');
+      spawnFloat(g, g.player.x, g.player.y, 'BOUNTY +1', '#62c86a', '悬赏 +1');
     }
     if (g.stats.scavengeChance > 0 && Math.random() < g.stats.scavengeChance) {
       const w = activeWeapon(g);
       if (!g.musou && w.ammo < w.maxAmmo) {
         w.ammo++;
-        spawnFloat(g, piece.x, piece.y, '+1 SHELL', '#ffd75e');
+        spawnFloat(g, piece.x, piece.y, '+1 SHELL', '#ffd75e', '+1 弹药');
       }
     }
   }
   if (piece.type === 'king') {
     g.floorCleared = true;
-    msg(g, 'THE WHITE KING IS DEAD!');
+    msg(g, 'THE WHITE KING IS DEAD!', '白王已死！');
   }
 }
 
@@ -543,8 +1016,8 @@ function damageObstacle(g, ob, dmg) {
     const i = g.obstacles.indexOf(ob);
     if (i >= 0) g.obstacles.splice(i, 1);
     g.score += 5;
-    spawnFloat(g, ob.x, ob.y, 'WALL DOWN', '#ffd75e');
-    msg(g, 'A WALL CRUMBLES!');
+    spawnFloat(g, ob.x, ob.y, 'WALL DOWN', '#ffd75e', '墙体崩塌');
+    msg(g, 'A WALL CRUMBLES!', '墙体崩塌！');
   }
 }
 
@@ -552,6 +1025,11 @@ function explodeAt(g, x, y, origin) {
   g.flashes.push({ x, y, r: 1, t0: now(), life: 260, color: '#ffb347' });
   for (const p of [...g.pieces]) {
     if (p === origin) continue;
+    if (p.e) {
+      // 精英：爆炸 3×3 与其落点一圈（2×2 覆盖）相交即命中
+      if (p.x - 1 <= x + 1 && p.x >= x - 1 && p.y - 1 <= y + 1 && p.y >= y - 1) damagePiece(g, p, 1, 'blast');
+      continue;
+    }
     if (Math.abs(p.x - x) <= 1 && Math.abs(p.y - y) <= 1) damagePiece(g, p, 1, 'blast');
   }
   for (const o of [...g.obstacles]) {
@@ -570,9 +1048,16 @@ function explodeAtCell(g, x, y, dmg) {
   addShake(g, 4);
   let slowDone = false;
   for (const p of [...g.pieces]) {
+    if (p.e) {
+      if (p.x - 1 <= x + 1 && p.x >= x - 1 && p.y - 1 <= y + 1 && p.y >= y - 1) {
+        const killed = damagePiece(g, p, dmg, 'blast');
+        if (!killed && g.stats.burn) p.burned = true;
+      }
+      continue;
+    }
     if (Math.abs(p.x - x) > 1 || Math.abs(p.y - y) > 1) continue;
     let d = dmg;
-    if (g.stats.headshot && Math.random() < 0.2) { d *= 2; spawnFloat(g, p.x, p.y, 'CRIT!', '#ffd75e'); }
+    if (g.stats.headshot && Math.random() < 0.2) { d *= 2; spawnFloat(g, p.x, p.y, 'CRIT!', '#ffd75e', '暴击！'); }
     const killed = damagePiece(g, p, d, 'blast');
     if (!killed) {
       if (g.stats.burn) p.burned = true;
@@ -588,7 +1073,7 @@ function damagePlayer(g, amount, attacker) {
   const dmg = Math.max(1, amount - g.stats.armor);
   if (g.shield > 0) {
     g.shield--;
-    spawnFloat(g, g.player.x, g.player.y, 'SHIELD!', '#7cc0ff');
+    spawnFloat(g, g.player.x, g.player.y, 'SHIELD!', '#7cc0ff', '护盾！');
     addShake(g, 2);
     return 0;
   }
@@ -600,8 +1085,8 @@ function damagePlayer(g, amount, attacker) {
     if (g.stats.insurance && !g.insuranceUsed) {
       g.insuranceUsed = true;
       g.player.hp = 1;
-      spawnFloat(g, g.player.x, g.player.y, 'ROYAL INSURANCE!', '#ffd75e');
-      msg(g, 'INSURANCE SAVES THE CROWN!');
+      spawnFloat(g, g.player.x, g.player.y, 'ROYAL INSURANCE!', '#ffd75e', '皇家保险！');
+      msg(g, 'INSURANCE SAVES THE CROWN!', '皇家保险保住了王冠！');
       return dmg;
     }
     g.player.hp = 0;
@@ -614,7 +1099,7 @@ function endGame(g) {
   if (g.over) return;
   g.over = true;
   g.phase = 'over';
-  msg(g, 'THE BLACK KING HAS FALLEN.');
+  msg(g, 'THE BLACK KING HAS FALLEN.', '黑王陨落');
   if (typeof showEndOverlay === 'function') showEndOverlay(g);
 }
 
@@ -643,6 +1128,7 @@ function raycast(g, cx, cy, angleDeg, maxDistCells, limit) {
     const pc = pieceAt(g, mapX, mapY);
     if (pc) {
       hits.push({ kind:'piece', x:mapX, y:mapY, pc, dist:t });
+      if (pc.e) break;                       // 精英是 2×2 大目标，挡住射线
       let n = 0;
       for (const h of hits) if (h.kind === 'piece') n++;
       if (n >= limit) break;
@@ -721,7 +1207,7 @@ function fireRayWeapon(g, w, aimDeg) {
       if (pi === 0 && g.stats.focus) dmg += 2;
       if (g.stats.headshot && Math.random() < 0.2) {
         dmg *= 2;
-        spawnFloat(g, h.pc.x, h.pc.y, 'CRIT!', '#ffd75e');
+        spawnFloat(g, h.pc.x, h.pc.y, 'CRIT!', '#ffd75e', '暴击！');
       }
       const killed = damagePiece(g, h.pc, dmg, 'shot');
       if (!killed) {
@@ -739,14 +1225,17 @@ function fireFlame(g, w, aimDeg) {
   const cx = g.player.x + 0.5, cy = g.player.y + 0.5;
   let slowDone = false;
   for (const p of [...g.pieces]) {
-    const dx = (p.x + 0.5) - cx, dy = (p.y + 0.5) - cy;
+    // 精英中心在交叉点（格点），普通棋子中心在格心
+    const px = p.e ? p.x : p.x + 0.5;
+    const py = p.e ? p.y : p.y + 0.5;
+    const dx = px - cx, dy = py - cy;
     const dist = Math.hypot(dx, dy);
     if (dist > eff.range + 0.5) continue;
     const ang = Math.atan2(dy, dx) * 180 / Math.PI;
     if (Math.abs(normDeg(ang - aimDeg)) > eff.cone / 2 + 1) continue;
     let dmg = eff.dmg;
     if (g.stats.explosive) dmg += 1;
-    if (g.stats.headshot && Math.random() < 0.2) { dmg *= 2; spawnFloat(g, p.x, p.y, 'CRIT!', '#ffd75e'); }
+    if (g.stats.headshot && Math.random() < 0.2) { dmg *= 2; spawnFloat(g, p.x, p.y, 'CRIT!', '#ffd75e', '暴击！'); }
     const killed = damagePiece(g, p, dmg, 'flame');
     if (!killed) {
       p.burned = true;
@@ -830,7 +1319,7 @@ async function playerAction(g, kind, arg) {
     }
   } else if (kind === 'fire') {
     const w = activeWeapon(g);
-    if (!g.musou && w.ammo <= 0) { msg(g, 'NO AMMO! PRESS R TO RELOAD.'); return false; }
+    if (!g.musou && w.ammo <= 0) { msg(g, 'NO AMMO! PRESS R TO RELOAD.', '没有弹药！按 R 装弹'); return false; }
     const aimDeg = normDeg(arg == null ? g.lastAim : arg);
     g.lastAim = aimDeg;
     let shots = 1;
@@ -844,15 +1333,15 @@ async function playerAction(g, kind, arg) {
     }
     addShake(g, 3);
     if (typeof sfx === 'function') sfx('shot');
-    if (shots === 2) msg(g, 'DOUBLE TAP!');
+    if (shots === 2) msg(g, 'DOUBLE TAP!', '双连发！');
     await wait(g, 130);
     ok = true;
   } else if (kind === 'reload') {
     const w = activeWeapon(g);
-    if (g.musou) { msg(g, 'MUSOU MODE: AMMO IS INFINITE.'); return false; }
-    if (w.ammo >= w.maxAmmo) { msg(g, w.name + ' ALREADY LOADED.'); return false; }
+    if (g.musou) { msg(g, 'MUSOU MODE: AMMO IS INFINITE.', '无双模式：弹药无限'); return false; }
+    if (w.ammo >= w.maxAmmo) { msg(g, w.name + ' ALREADY LOADED.', w.name + ' 已满载'); return false; }
     w.ammo = w.maxAmmo;
-    msg(g, w.name + ' RELOADED.');
+    msg(g, w.name + ' RELOADED.', w.name + ' 已装弹');
     if (typeof sfx === 'function') sfx('reload');
     free = g.stats.freeReload;
     ok = true;
@@ -862,9 +1351,9 @@ async function playerAction(g, kind, arg) {
   g.actionNo++;
   if (g.stats.timeStop && g.actionNo % 5 === 0) {
     free = true;
-    msg(g, 'TIME RIFT: FREE ACTION!');
+    msg(g, 'TIME RIFT: FREE ACTION!', '时间裂隙：免费行动！');
   }
-  if (free) msg(g, 'FREE ACTION - ENEMIES FROZEN.');
+  if (free) msg(g, 'FREE ACTION - ENEMIES FROZEN.', '免费行动——敌方冻结');
 
   if (g.stats.aura && kind !== 'reload') {
     for (const p of [...g.pieces]) {
@@ -889,40 +1378,104 @@ async function tweenPiece(g, p, fx, fy, tx, ty, dur) {
   await wait(g, dur);
 }
 
+async function executeEnemyMove(g, p, mv) {
+  if (mv.capture && mv.remote) {
+    // 炮：隔山远程攻击玩家，不位移
+    damagePlayer(g, p.dmg, p);
+    if (typeof sfx === 'function') sfx('hurt');
+    return;
+  }
+  if (mv.capture) {
+    const ox = p.x, oy = p.y;
+    await tweenPiece(g, p, p.x, p.y, g.player.x, g.player.y, 75);
+    damagePlayer(g, p.dmg, p);
+    if (g.over) return;
+    if (g.stats.thorns && g.pieces.includes(p)) {
+      const killed = damagePiece(g, p, 1, 'thorns');
+      if (killed) return;
+    }
+    await tweenPiece(g, p, g.player.x, g.player.y, ox, oy, 65);
+    p.moving = null;
+  } else {
+    await tweenPiece(g, p, p.x, p.y, mv.x, mv.y, 80);
+    p.x = mv.x; p.y = mv.y; p.moving = null;
+  }
+}
+
 async function enemyPhase(g) {
   g.phase = 'enemy';
-  const order = [...g.pieces].sort((a, b) => typeOrder(a.type) - typeOrder(b.type));
 
-  for (const p of order) {
-    if (g.over || g.floorCleared) break;
-    if (!g.pieces.includes(p)) continue;
+  // 时间冻结：敌方整回合跳过
+  if (g.frozen) {
+    g.frozen = false;
+    msg(g, 'TIME FROZEN - ENEMIES SKIP THEIR TURN.', '时间冻结——敌方跳过回合');
+    g.turn++;
+    g.phase = 'player';
+    return;
+  }
 
-    if (p.slowed) { p.slowed = false; continue; }
-    if (p.burned) {
+  // 灼烧等状态结算对所有普通棋子生效（精英免疫状态）
+  for (const p of [...g.pieces]) {
+    if (g.over) break;
+    if (!p.e && p.burned) {
       p.burned = false;
-      const killed = damagePiece(g, p, 1, 'burn');
-      if (killed || g.floorCleared) continue;
+      damagePiece(g, p, 1, 'burn');
     }
+  }
+  if (g.over) return;
+  if (g.floorCleared) { g.turn++; g.phase = 'player'; return; }
 
-    const mv = pickEnemyMove(g, p);
+  /* 普通棋子分批行动：每次从可行动棋子中随机挑选一组，组内同时移动。
+     - 最多 60% 的棋子一起移动（floor(0.6n)）
+     - 至少 2 个棋子一起移动（场上只剩 1 个可行动时除外）
+     - 其余棋子本回合按兵不动 */
+  const n = g.pieces.length;
+  const eligible = g.pieces.filter(p => !p.e && !p.slowed && legalEnemyMoves(g, p).length > 0);
+  const maxMovers = Math.max(2, Math.floor(n * 0.6));
+  let count = Math.min(maxMovers, eligible.length);
+  if (count < 2) count = Math.min(2, eligible.length);
+  const movers = shuffle(eligible).slice(0, count);
+  for (const p of g.pieces) if (!movers.includes(p) && !p.e) p.slowed = false;
+
+  // 组内决策：按棋子类型顺序依次定案，保持与逐子行动一致的棋面语义。
+  // vacated = 已定案要离开的格子（对其他棋子开放）；taken = 已定案落子的
+  // 格子（对其他棋子封闭）。未定案/抓人往返的棋子原地不动，格子始终封闭。
+  const vacated = new Set();
+  const taken = new Set();
+  const plans = [];
+  const order = [...movers].sort((a, b) => typeOrder(a.type) - typeOrder(b.type));
+  for (const p of order) {
+    const moves = legalEnemyMovesCore(g, p, vacated, taken);
+    const mv = pickEnemyMoveFrom(g, p, moves);
     if (!mv) continue;
+    plans.push({ p, mv });
+    if (!mv.capture) { vacated.add(p.x + ',' + p.y); taken.add(mv.x + ',' + mv.y); }
+  }
+  if (plans.length > 0) msg(g, plans.length + ' PIECES ADVANCE.', plans.length + ' 枚棋子推进');
 
-    if (mv.capture) {
-      const ox = p.x, oy = p.y;
-      await tweenPiece(g, p, p.x, p.y, g.player.x, g.player.y, 75);
-      damagePlayer(g, p.dmg, p);
+  await Promise.all(plans.map(({ p, mv }) => executeEnemyMove(g, p, mv)));
+  if (g.over) return;
+  if (g.floorCleared) { g.turn++; g.phase = 'player'; return; }
+
+  // 精英棋子：每回合必动（不走分批），覆盖玩家即攻击；精英炮可隔山远程
+  for (const e of [...g.pieces]) {
+    if (g.over || g.floorCleared) break;
+    if (!e.e) continue;
+    const mv = elitePickMove(g, e);
+    if (!mv) continue;
+    if (mv.remote) {
+      damagePlayer(g, e.dmg, e);
+      spawnFloat(g, e.x, e.y, 'CANON!', '#ff9a4d', '隔山炮！');
       if (g.over) break;
-      if (g.stats.thorns && g.pieces.includes(p)) {
-        const killed = damagePiece(g, p, 1, 'thorns');
-        if (killed) continue;
-      }
-      await tweenPiece(g, p, g.player.x, g.player.y, ox, oy, 65);
-      p.moving = null;
-    } else {
-      await tweenPiece(g, p, p.x, p.y, mv.x, mv.y, 80);
-      p.x = mv.x; p.y = mv.y; p.moving = null;
+      continue;
     }
-    await wait(g, 24);
+    await tweenPiece(g, e, e.x, e.y, mv.ex, mv.ey, 90);
+    e.x = mv.ex; e.y = mv.ey; e.moving = null;
+    if (playerInElite(g, e)) {
+      damagePlayer(g, e.dmg, e);
+      if (g.over) break;
+    }
+    await wait(g, 20);
   }
 
   if (g.over) return;
@@ -994,7 +1547,7 @@ function applyCard(g, card) {
     case 'timestop':    s.timeStop = true; break;
   }
   g.cards.push(card);
-  msg(g, 'UPGRADE: ' + card.en);
+  msg(g, 'UPGRADE: ' + card.en, '升级：' + card.zh);
   if (typeof sfx === 'function') sfx('pick');
 }
 
@@ -1009,20 +1562,249 @@ function chooseCard(g, id) {
 
 function skipCard(g) {
   if (g.player.hp < g.player.maxHp) g.player.hp++;
-  msg(g, 'REST AND RECOVER +1 CROWN.');
+  msg(g, 'REST AND RECOVER +1 CROWN.', '休整恢复 +1 王冠');
   g.floor++;
   spawnFloor(g);
   if (typeof hideCardOverlay === 'function') hideCardOverlay();
 }
 
+/* ------------------------------------------------------------- remnants */
+/* 击杀敌人获得对应残躯（栏位 2）：一次性召唤黑色对应棋子，按对应走法行进
+   一次——可吃掉路径终点上的敌人。 */
+function relicMoves(g) {
+  if (!g.relicMode) return [];
+  const t = g.relicMode.type;
+  const P = g.player;
+  const out = [];
+  const add = (x, y) => {
+    if (!inB(x, y) || (x === P.x && y === P.y)) return;
+    if (obstacleAt(g, x, y)) return;          // 障碍不可落
+    out.push({ x, y });
+  };
+  const slideAdd = (dx, dy) => {
+    let x = P.x + dx, y = P.y + dy;
+    while (inB(x, y)) {
+      const pc = pieceAt(g, x, y);
+      if (pc) { add(x, y); break; }           // 吃子
+      if (obstacleAt(g, x, y)) break;
+      add(x, y);
+      x += dx; y += dy;
+    }
+  };
+  if (isXQ(g)) {
+    switch (t) {
+      case 'pawn': {                            // 黑卒：向前（上）；过河后可横走
+        add(P.x, P.y - 1);
+        if (P.y <= 3) { for (const dx of [-1, 1]) add(P.x + dx, P.y); }
+        break;
+      }
+      case 'knight':                            // 黑马：日字 + 蹩马腿
+        for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) {
+          const lx = P.x + dx, ly = P.y + dy;
+          if (!inB(lx, ly)) continue;
+          const legX = Math.abs(dx) === 2 ? P.x + dx / 2 : P.x;
+          const legY = Math.abs(dy) === 2 ? P.y + dy / 2 : P.y;
+          if (blockedAt(g, legX, legY)) continue;
+          add(lx, ly);
+        }
+        break;
+      case 'bishop':                            // 黑象：田字 + 塞象眼 + 不过河
+        for (const [dx, dy] of [[2,2],[2,-2],[-2,2],[-2,-2]]) {
+          const lx = P.x + dx, ly = P.y + dy;
+          if (!inB(lx, ly) || ly < 4) continue;
+          if (blockedAt(g, P.x + dx / 2, P.y + dy / 2)) continue;
+          add(lx, ly);
+        }
+        break;
+      case 'rook': for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) slideAdd(dx, dy); break;
+      case 'cannon': {                          // 黑砲：直线移动或隔一子吃
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          let x = P.x + dx, y = P.y + dy, seen = false;
+          while (inB(x, y)) {
+            const b = blockedAt(g, x, y);
+            if (!seen) {
+              if (b) seen = true;
+              else add(x, y);
+            } else {
+              if (pieceAt(g, x, y)) add(x, y);  // 隔子吃
+              break;
+            }
+            x += dx; y += dy;
+          }
+        }
+        break;
+      }
+      case 'advisor':                           // 黑士：九宫（x3..5, y6..8）斜走
+        for (const [dx, dy] of [[1,1],[1,-1],[-1,1],[-1,-1]]) {
+          const lx = P.x + dx, ly = P.y + dy;
+          if (lx >= 3 && lx <= 5 && ly >= 6 && ly <= 8) add(lx, ly);
+        }
+        break;
+      case 'king':                              // 黑将：九宫直走
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const lx = P.x + dx, ly = P.y + dy;
+          if (lx >= 3 && lx <= 5 && ly >= 6 && ly <= 8) add(lx, ly);
+        }
+        break;
+    }
+  } else {
+    switch (t) {
+      case 'pawn': add(P.x, P.y - 1); break;
+      case 'knight':
+        for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) add(P.x + dx, P.y + dy);
+        break;
+      case 'bishop': for (const [dx, dy] of [[1,1],[1,-1],[-1,1],[-1,-1]]) slideAdd(dx, dy); break;
+      case 'rook': for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) slideAdd(dx, dy); break;
+      case 'queen': for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) slideAdd(dx, dy); break;
+      case 'king': for (const [dx, dy] of DIRS) add(P.x + dx, P.y + dy); break;
+    }
+  }
+  return out;
+}
+
+function useRemnantSlot(g, slot) {
+  if (g.phase !== 'player' || g.over || overlayOpen()) return;
+  if (g.relicMode) { g.relicMode = null; return; }   // 再次点击取消瞄准
+  const r = g.remnants[slot];
+  if (!r) return;
+  g.relicMode = { type: r.type, slot };
+  if (typeof sfx === 'function') sfx('move');
+}
+
+async function chooseRemnant(g, x, y) {
+  if (!g.relicMode || g.phase !== 'player' || g.over) return;
+  const moves = relicMoves(g);
+  if (!moves.some(m => m.x === x && m.y === y)) { g.relicMode = null; return; }  // 非法格 = 取消
+  const type = g.relicMode.type, slot = g.relicMode.slot;
+  const target = pieceAt(g, x, y);
+  g.relicGhost = { fx: g.player.x, fy: g.player.y, tx: x, ty: y, type, t0: now(), dur: 140 };
+  await wait(g, 140);
+  g.relicGhost = null;
+  if (target) {
+    const tname = target.e ? (XQ_CHAR[target.subtype] || '精') : (target.type === 'king' ? (isXQ(g) ? '帅' : '王') : (PT_ZH[target.type] || target.type));
+    killPiece(g, target, 'remnant');
+    spawnFloat(g, x, y, 'DEVOUR!', '#7cc0ff', '吞噬！');
+    msg(g, 'REMNANT DEVOURS ' + target.type.toUpperCase() + '!', '残躯吞噬' + tname + '！');
+    if (typeof sfx === 'function') sfx('bomb');
+  }
+  g.remnants.splice(slot, 1);
+  g.relicMode = null;
+  // 残躯行进算一次行动：推进敌方回合
+  g.actionNo++;
+  if (g.stats.timeStop && g.actionNo % 5 === 0) { msg(g, 'TIME RIFT: FREE ACTION!', '时间裂隙：免费行动！'); return; }
+  if (g.stats.aura) {
+    for (const p of [...g.pieces]) {
+      if (!p.e && cheb(p, g.player) <= 1) damagePiece(g, p, 1, 'aura');
+    }
+  }
+  if (g.floorCleared) { await endFloor(g); return; }
+  g.phase = 'enemy';
+  await enemyPhase(g);
+  if (!g.over && g.floorCleared) await endFloor(g);
+}
+
+/* ----------------------------------------------------------- active item */
+function useItem(g) {
+  if (!g.activeItem) {
+    msg(g, 'NO ACTIVE ITEM! GET ONE AT FLOOR 3/6/9.', '还没有主动道具！3/6/9 层结束可选。');
+    return;
+  }
+  if (g.phase !== 'player' || g.over || overlayOpen()) return;
+  const it = itemById(g.activeItem.id);
+  if (g.activeItem.charge < it.maxCharge) {
+    msg(g, 'ITEM NOT CHARGED! (' + g.activeItem.charge + '/' + it.maxCharge + ')', '道具充能不足！');
+    return;
+  }
+  g.activeItem.charge = 0;
+  switch (it.id) {
+    case 'bomb':
+      explodeAtCell(g, g.player.x, g.player.y, 3);
+      msg(g, 'BIG BOMB DETONATED!', '大炸弹引爆！');
+      break;
+    case 'freeze':
+      g.frozen = true;
+      msg(g, 'TIME FROZEN!', '时间冻结！');
+      break;
+    case 'barrage': {
+      const w = activeWeapon(g);
+      for (let i = 0; i < 8; i++) {
+        fireRayWeapon(g, w, i * 45 - 180 + 22.5);
+        if (g.floorCleared) break;
+      }
+      msg(g, 'BARRAGE!', '八向齐射！');
+      break;
+    }
+    case 'heal':
+      g.player.hp = Math.min(g.player.maxHp, g.player.hp + 2);
+      spawnFloat(g, g.player.x, g.player.y, '+2 HP', '#62c86a', '+2 生命');
+      msg(g, 'CROWN HEALED!', '王冠恢复！');
+      break;
+    case 'purge': {
+      const targets = g.pieces.filter(p => p.type !== 'king' && !p.e);
+      if (targets.length) {
+        const t = targets[ri(0, targets.length - 1)];
+        killPiece(g, t, 'purge');
+        msg(g, 'ROYAL PURGE STRIKES!', '御前肃清！');
+      }
+      break;
+    }
+  }
+  if (typeof sfx === 'function') sfx('pick');
+  if (g.floorCleared) { endFloor(g); }
+}
+
+function showItemOverlay(g) {
+  if (typeof document === 'undefined') return;
+  const overlay = document.getElementById('itemOverlay');
+  const wrap = document.getElementById('itemCards');
+  const stats = document.getElementById('itemStats');
+  if (!overlay || !wrap || !stats) return;
+  wrap.innerHTML = '';
+  stats.innerHTML = g.activeItem
+    ? '当前道具 <b>' + itemById(g.activeItem.id).zh + '</b> —— 选择一张替换，或点击「保留」（战斗中按 <b>Q</b> 或点底部 <b>ITEM</b> 按钮释放）'
+    : '每 3 层（3/6/9）可选取一件<b>主动道具</b>：击杀敌人充能，充满后按 <b>Q</b> 或点底部 <b>ITEM</b> 按钮释放';
+  const pool = shuffle(ITEMS.slice());
+  pool.slice(0, 3).forEach(it => {
+    const div = document.createElement('div');
+    div.className = 'card rare';
+    div.innerHTML =
+      '<div class="rarity">ACTIVE ITEM · 主动道具</div>' +
+      '<div class="ename">' + it.en + '</div>' +
+      '<div class="zhdesc"><b>' + it.zh + '</b> — ' + it.desc + '</div>' +
+      '<div class="cdesc">CHARGE ' + it.maxCharge + ' · 充能 ' + it.maxCharge + '</div>';
+    div.onclick = () => chooseItem(g, it.id);
+    wrap.appendChild(div);
+  });
+  overlay.classList.remove('hidden');
+}
+
+function hideItemOverlay() {
+  if (typeof document === 'undefined') return;
+  const o = document.getElementById('itemOverlay');
+  if (o) o.classList.add('hidden');
+}
+
+function chooseItem(g, id) {
+  g.activeItem = { id, charge: 0 };
+  msg(g, 'ACTIVE ITEM: ' + itemById(id).en, '主动道具：' + itemById(id).zh);
+  if (typeof sfx === 'function') sfx('pick');
+  hideItemOverlay();
+  if (typeof showCardOverlay === 'function') showCardOverlay(g);
+}
+
+function skipItem(g) {
+  hideItemOverlay();
+  if (typeof showCardOverlay === 'function') showCardOverlay(g);
+}
+
 async function endFloor(g) {
   g.phase = 'floor';
   g.score += g.floor * 100;
-  msg(g, 'FLOOR ' + g.floor + ' CLEARED!');
+  msg(g, 'FLOOR ' + g.floor + ' CLEARED!', '第 ' + g.floor + ' 层通关！');
 
   if (g.floor === 10 && !g.endless && !g.won) {
     g.won = true;
-    msg(g, 'THE TOWER IS CONQUERED!');
+    msg(g, 'THE TOWER IS CONQUERED!', '高塔已被征服！');
     if (typeof showEndOverlay === 'function') showEndOverlay(g);
     return;
   }
@@ -1032,6 +1814,12 @@ async function endFloor(g) {
     applyCard(g, card);
     g.floor++;
     spawnFloor(g);
+    return;
+  }
+
+  // 3/6/9 层结束：先选/替换主动道具，再选强化卡
+  if (g.floor % 3 === 0 && typeof showItemOverlay === 'function') {
+    showItemOverlay(g);
     return;
   }
 
@@ -1084,6 +1872,7 @@ function pieceShapes(type) {
 
 function drawPieceSprite(c, type, white, px, py) {
   const col = white ? WHITE_COL : BLACK_COL;
+  const accent = white ? (PIECE_ACCENT[type] || col.accent) : col.accent;
   const shapes = pieceShapes(type);
   const pass = (color, ox, oy) => {
     for (const s of shapes) {
@@ -1097,23 +1886,57 @@ function drawPieceSprite(c, type, white, px, py) {
     if (s.t === 'r') pxRect(c, px + s.x, py + s.y + s.h - 1, s.w, 1, col.shade);
   }
   if (type === 'bishop') {
-    pxRect(c, px - 1, py - 6, 1, 2, col.accent); pxRect(c, px, py - 7, 1, 1, col.accent);
+    pxRect(c, px - 1, py - 6, 1, 2, accent); pxRect(c, px, py - 7, 1, 1, accent);
   }
   if (type === 'rook') {
-    pxRect(c, px - 1, py - 2, 3, 1, col.accent); pxRect(c, px, py - 1, 1, 1, col.accent);
+    pxRect(c, px - 1, py - 2, 3, 1, accent); pxRect(c, px, py - 1, 1, 1, accent);
   }
   if (type === 'queen') {
     pxRect(c, px - 3, py - 6, 7, 2, col.gold);
     pxRect(c, px - 3, py - 8, 1, 2, col.gold); pxRect(c, px, py - 8, 1, 2, col.gold); pxRect(c, px + 3, py - 8, 1, 2, col.gold);
   }
   if (type === 'king') {
-    pxRect(c, px - 3, py - 6, 7, 2, col.gold);
-    pxRect(c, px - 3, py - 8, 1, 2, col.gold); pxRect(c, px, py - 8, 1, 2, col.gold); pxRect(c, px + 3, py - 8, 1, 2, col.gold);
-    pxRect(c, px, py - 10, 1, 3, col.gold); pxRect(c, px - 1, py - 9, 3, 1, col.gold);
+    pxRect(c, px - 3, py - 6, 7, 2, accent);
+    pxRect(c, px - 3, py - 8, 1, 2, accent); pxRect(c, px, py - 8, 1, 2, accent); pxRect(c, px + 3, py - 8, 1, 2, accent);
+    pxRect(c, px, py - 10, 1, 3, accent); pxRect(c, px - 1, py - 9, 3, 1, accent);
   }
   if (type === 'knight') {
-    pxRect(c, px - 2, py - 6, 1, 1, col.accent); pxRect(c, px + 2, py - 6, 1, 1, col.accent);
+    pxRect(c, px - 2, py - 6, 1, 1, accent); pxRect(c, px + 2, py - 6, 1, 1, accent);
   }
+  // 底座铭牌：字母（P/N/B/R/Q/K）——一眼认出棋子种类
+  if (white && PIECE_LETTER[type]) {
+    pxRect(c, px - 4, py + 8, 9, 5, col.dark);
+    pxRect(c, px - 4, py + 8, 9, 1, col.shade);
+    drawText(c, PIECE_LETTER[type], px - 1, py + 8, col.main, 1);
+  }
+}
+
+/* 中国象棋棋子：圆形 + 汉字（红方） */
+function drawXiangqiPiece(c, type, px, py) {
+  const ch = XQ_CHAR[type] || '兵';
+  if (type === 'king') pxRing(c, px, py, 11, '#e8c34a');
+  pxRing(c, px, py, 10, '#7a2626');
+  pxCircle(c, px, py, 9, '#c94f4f');
+  pxCircle(c, px, py, 7, '#b23d3d');
+  drawTextCJK(c, ch, px - 4, py - 4, '#f5e9d0', 1);
+}
+/* 黑色（我方）中国象棋棋子：残躯幽灵用 */
+function drawXiangqiPieceBlack(c, type, px, py) {
+  pxRing(c, px, py, 10, '#0d0e13');
+  pxCircle(c, px, py, 9, '#3a3f50');
+  pxCircle(c, px, py, 7, '#2b2d3a');
+  drawTextCJK(c, XQ_CHAR_BLACK[type] || '卒', px - 4, py - 4, '#e8e2cf', 1);
+}
+/* 精英棋子：位于交叉点（格点），占据 2×2，金色大环 + 汉字 */
+function drawElitePiece(c, p, gx, gy) {
+  pxRing(c, gx, gy, 13, '#e8c34a');
+  pxRing(c, gx, gy, 11, '#8e2f2f');
+  pxCircle(c, gx, gy, 10, '#c94f4f');
+  pxCircle(c, gx, gy, 8, '#b23d3d');
+  drawTextCJK(c, XQ_CHAR[p.subtype] || '兵', gx - 4, gy - 4, '#ffe9a8', 1);
+  pxRect(c, gx + 5, gy - 14, 3, 3, '#ffd75e');   // 星标
+  pxRect(c, gx + 6, gy - 15, 1, 5, '#ffd75e');
+  pxRect(c, gx + 4, gy - 14, 5, 1, '#ffd75e');
 }
 
 function drawPos(o) {
@@ -1139,6 +1962,40 @@ function drawShell(c, x, y, col) {
   pxRect(c, x, y, 3, 2, col);
   pxRect(c, x + 2, y - 1, 3, 1, col);
   pxRect(c, x + 4, y, 2, 2, '#b58a2e');
+}
+
+/* 主动道具 7×7 像素图标 */
+function drawItemIcon(c, id, x, y) {
+  if (id === 'bomb') {
+    pxCircle(c, x + 3, y + 4, 3, '#c94f4f');
+    pxRect(c, x + 2, y + 1, 1, 2, '#ffd75e');
+    pxRect(c, x + 3, y, 1, 1, '#ffd75e');
+    pxRect(c, x + 3, y + 3, 1, 1, '#ff9a4d');
+  } else if (id === 'freeze') {
+    pxRect(c, x + 3, y, 1, 3, '#7cc0ff');
+    pxRect(c, x + 3, y + 4, 1, 3, '#7cc0ff');
+    pxRect(c, x, y + 3, 3, 1, '#7cc0ff');
+    pxRect(c, x + 4, y + 3, 3, 1, '#7cc0ff');
+    pxRect(c, x + 2, y + 2, 3, 3, '#bfe2ff');
+  } else if (id === 'barrage') {
+    pxRect(c, x + 3, y, 1, 3, '#ffd75e');
+    pxRect(c, x + 2, y + 3, 3, 1, '#ffd75e');
+    pxRect(c, x, y + 4, 1, 2, '#ffd75e');
+    pxRect(c, x + 6, y + 4, 1, 2, '#ffd75e');
+    pxRect(c, x + 3, y + 5, 1, 2, '#ffd75e');
+  } else if (id === 'heal') {
+    pxRect(c, x + 3, y, 1, 7, '#62c86a');
+    pxRect(c, x, y + 3, 7, 1, '#62c86a');
+    pxRect(c, x + 3, y + 3, 1, 1, '#8fe898');
+  } else if (id === 'purge') {
+    pxRect(c, x + 2, y, 3, 3, '#d8dce8');
+    pxRect(c, x + 3, y + 2, 1, 2, '#d8dce8');
+    pxRect(c, x + 3, y + 4, 1, 2, '#8d93a8');
+    pxRect(c, x + 1, y + 6, 5, 1, '#8d93a8');
+    pxRect(c, x + 4, y + 4, 1, 2, '#d84a4a');
+  } else {
+    pxRect(c, x, y, 7, 7, '#3a3f50');
+  }
 }
 
 function aimPreviewTarget(g) {
@@ -1213,14 +2070,21 @@ function render(g) {
 
   const threat = (g.phase === 'player') ? threatMap(g) : null;
   const legal = (g.phase === 'player') ? legalPlayerMoves(g) : null;
+  const xq = isXQ(g);
 
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       const tx = BX + x * CELL, ty = BY + y * CELL;
       const dark = (x + y) % 2 === 1;
-      pxRect(c, tx, ty, CELL, CELL, dark ? '#333847' : '#444a5e');
-      pxRect(c, tx, ty, CELL, 1, '#252936');
-      pxRect(c, tx, ty, 1, CELL, '#252936');
+      if (xq) {
+        pxRect(c, tx, ty, CELL, CELL, dark ? '#7a5c38' : '#8a6a42');
+        pxRect(c, tx, ty, CELL, 1, '#5b422a');
+        pxRect(c, tx, ty, 1, CELL, '#5b422a');
+      } else {
+        pxRect(c, tx, ty, CELL, CELL, dark ? '#333847' : '#444a5e');
+        pxRect(c, tx, ty, CELL, 1, '#252936');
+        pxRect(c, tx, ty, 1, CELL, '#252936');
+      }
       if (threat && threat[y][x]) {
         pxRect(c, tx, ty, CELL, CELL, 'rgba(216,74,74,0.22)');
         pxRect(c, tx + 2, ty + 2, 3, 3, '#d84a4a');
@@ -1238,10 +2102,33 @@ function render(g) {
       }
     }
   }
+  // 中国象棋：楚河汉界
+  if (xq) {
+    pxRect(c, BX, BY + 3 * CELL, CELL * 8, CELL, '#241a0e');
+    pxRect(c, BX, BY + 3 * CELL, CELL * 8, 1, '#0d0a05');
+    pxRect(c, BX, BY + 4 * CELL - 1, CELL * 8, 1, '#0d0a05');
+    drawTextCJK(c, '楚河', BX + 10, BY + 3 * CELL + 8, 'rgba(232,195,74,0.65)', 1);
+    drawTextCJK(c, '汉界', BX + CELL * 8 - 30, BY + 3 * CELL + 8, 'rgba(232,195,74,0.65)', 1);
+  }
   pxRect(c, BX - 2, BY - 2, CELL * 8 + 4, 2, '#0a0c12');
   pxRect(c, BX - 2, BY + CELL * 8, CELL * 8 + 4, 2, '#0a0c12');
   pxRect(c, BX - 2, BY - 2, 2, CELL * 8 + 4, '#0a0c12');
   pxRect(c, BX + CELL * 8, BY - 2, 2, CELL * 8 + 4, '#0a0c12');
+
+  // 精英 2×2 覆盖区高亮（金色底纹，落点一圈格子）
+  if (xq) {
+    for (const p of g.pieces) {
+      if (!p.e) continue;
+      for (let dy = 0; dy <= 1; dy++) {
+        for (let dx = 0; dx <= 1; dx++) {
+          const tx = BX + (p.x - 1 + dx) * CELL, ty = BY + (p.y - 1 + dy) * CELL;
+          pxRect(c, tx, ty, CELL, CELL, 'rgba(232,195,74,0.16)');
+          pxRect(c, tx + 1, ty + 1, 2, 2, 'rgba(232,195,74,0.5)');
+          pxRect(c, tx + CELL - 3, ty + CELL - 3, 2, 2, 'rgba(232,195,74,0.5)');
+        }
+      }
+    }
+  }
 
   drawAim(g, c);
 
@@ -1277,8 +2164,20 @@ function render(g) {
   // pieces
   for (const p of g.pieces) {
     const d = drawPos(p);
+    if (p.e) {
+      // 精英画在交叉点（格点）上
+      const gx = BX + d.x * CELL, gy = BY + d.y * CELL;
+      drawElitePiece(c, p, gx, gy);
+      if (p.hp < p.maxHp) {
+        const w = Math.max(1, Math.round(12 * p.hp / p.maxHp));
+        pxRect(c, gx - 6, gy - 19, 12, 1, '#14161c');
+        pxRect(c, gx - 6, gy - 19, w, 1, '#ff9a4d');
+      }
+      continue;
+    }
     const cc = cellCenter(d.x, d.y);
-    drawPieceSprite(c, p.type, true, cc.x, cc.y);
+    if (xq) drawXiangqiPiece(c, p.type, cc.x, cc.y);
+    else drawPieceSprite(c, p.type, true, cc.x, cc.y);
     if (p.hp < p.maxHp) {
       const w = Math.max(1, Math.round(10 * p.hp / p.maxHp));
       pxRect(c, cc.x - 5, cc.y - 12, 10, 1, '#14161c');
@@ -1334,13 +2233,44 @@ function render(g) {
     pxRect(c, px, py, p.size, p.size, p.color);
   }
 
+  // 残躯瞄准：高亮可达格（蓝=移动，红=吃子）
+  if (g.relicMode && g.phase === 'player') {
+    const moves = relicMoves(g);
+    for (const m of moves) {
+      const tx = BX + m.x * CELL, ty = BY + m.y * CELL;
+      const target = pieceAt(g, m.x, m.y);
+      if (target) {
+        pxRect(c, tx, ty, CELL, CELL, 'rgba(216,74,74,0.3)');
+        pxRect(c, tx + 1, ty + 1, CELL - 2, CELL - 2, 'rgba(216,74,74,0.4)');
+      } else {
+        pxRect(c, tx + 1, ty + 1, CELL - 2, CELL - 2, 'rgba(124,192,255,0.35)');
+      }
+    }
+    drawText(c, 'PICK A SQUARE', BX, BY + CELL * 8 + 6, '#7cc0ff', UI_SMALL);
+  }
+
+  // 残躯幽灵：黑色对应棋子行进动画
+  if (g.relicGhost) {
+    const t = clamp((tNow - g.relicGhost.t0) / g.relicGhost.dur, 0, 1);
+    const gx = g.relicGhost.fx + (g.relicGhost.tx - g.relicGhost.fx) * t;
+    const gy = g.relicGhost.fy + (g.relicGhost.ty - g.relicGhost.fy) * t;
+    const cc = cellCenter(gx, gy);
+    if (isXQ(g)) drawXiangqiPieceBlack(c, g.relicGhost.type, cc.x, cc.y);
+    else drawPieceSprite(c, g.relicGhost.type, false, cc.x, cc.y);
+  }
+
   // floating text
   g.floats = g.floats.filter(f => tNow - f.t0 < f.life);
   for (const f of g.floats) {
     const k = 1 - (tNow - f.t0) / f.life;
     const cc = cellCenter(f.x, f.y);
+    const enW = f.text.length * 4 * UI_BIG;
+    const zhW = f.zh ? 4 + f.zh.length * CJK_FONT_PX : 0;
+    const totalW = enW + zhW;
+    const fy = cc.y - 14 - (1 - k) * 8;
     c.globalAlpha = Math.max(0, Math.min(1, k * 1.6));
-    drawText(c, f.text, cc.x - f.text.length * 2 * UI_BIG, cc.y - 14 - (1 - k) * 8, f.color, UI_BIG);
+    drawText(c, f.text, cc.x - totalW / 2, fy, f.color, UI_BIG);
+    if (f.zh) drawTextCJK(c, f.zh, cc.x - totalW / 2 + enW + 4, fy + UI_BIG * 5 - CJK_FONT_PX, '#e8e2cf', 1);
     c.globalAlpha = 1;
   }
 
@@ -1351,16 +2281,16 @@ function render(g) {
 
 function renderTopStrip(g) {
   const c = ctx;
-  let tx = BX;
   const topY = 3;
-  tx += drawText(c, 'SHOTGUN KING', tx, topY, '#e8c34a', UI_BIG) + 6;
-  const modeName = g.modeId === 'classic' ? 'CLASSIC' : g.modeId.toUpperCase();
+  drawText(c, 'SHOTGUN KING', BX, topY, '#e8c34a', UI_BIG);
   const smallY = topY + (UI_BIG - UI_SMALL) * 5;
-  tx += drawText(c, modeName, tx, smallY, '#62c86a', UI_SMALL) + 8;
-  const floorTxt = g.endless ? 'ENDLESS ' + g.floor : 'TOWER ' + g.floor + '/10';
-  tx += drawText(c, floorTxt, tx, smallY, '#8d93a8', UI_SMALL);
+  let tx = BX;
+  tx += drawBilingual(c, g.modeId === 'classic' ? 'CLASSIC' : g.modeId.toUpperCase(), MODE_ZH[g.modeId] || '', tx, smallY, '#62c86a', '#4d8f52', UI_SMALL, 1) + 6;
+  const floorTxt = g.endless ? 'ENDLESS ' + g.floor : g.floor + '/10';
+  tx += drawBilingual(c, floorTxt, '第' + CN_NUM[g.chapter] + '章', tx, smallY, '#8d93a8', '#6b7188', UI_SMALL, 1) + 6;
   const w = activeWeapon(g);
-  drawText(c, w.short, PANEL_X + 6, smallY, '#ffd75e', UI_SMALL);
+  const zhShort = UI_SMALL === 1 ? (WEAPON_ZH_SHORT[w.id] || '') : '';
+  drawBilingual(c, w.short, zhShort, tx, smallY, '#ffd75e', '#b58a2e', UI_SMALL, 1);
 }
 
 function renderPanel(g) {
@@ -1370,12 +2300,12 @@ function renderPanel(g) {
   pxRect(c, x, 0, 1, H, '#2a2f3f');
 
   const compact = UI_BIG >= 3;                       // phone layout
-  const SH = UI_SMALL * 5 + 3;                       // small line advance
+  const SH = UI_SMALL * 5 + (compact ? 3 : 4);       // small line advance（桌面 +1 容纳 9px 中文）
   const BH = UI_BIG * 5 + 2;                         // big line advance
   let y = 16;
 
   // crowns
-  drawText(c, 'CROWNS', x + 6, y, '#8d93a8', UI_SMALL);
+  drawBilingual(c, 'CROWNS', '王冠', x + 6, y, '#8d93a8', '#5f6577', UI_SMALL, 1);
   for (let i = 0; i < Math.min(g.player.maxHp, 10); i++) {
     const filled = i < g.player.hp;
     drawMiniCrown(c, x + 46 + i * 7, y, filled ? '#e8c34a' : '#3a3f50');
@@ -1386,28 +2316,77 @@ function renderPanel(g) {
   // active weapon block
   const w = activeWeapon(g);
   const eff = effectiveWeapon(g, w);
-  drawText(c, w.name, x + 6, y, '#ffd75e', UI_BIG);
+  drawBilingual(c, w.name, WEAPON_ZH[w.id] || '', x + 6, y, '#ffd75e', '#b58a2e', UI_BIG, 1);
   y += BH;
-  drawText(c, 'DMG ' + eff.dmg + ' CONE ' + eff.cone, x + 6, y, '#aeb4c8', UI_BIG);
+  drawBilingual(c, 'DMG ' + eff.dmg + ' CONE ' + eff.cone, '伤害·锥角', x + 6, y, '#aeb4c8', '#8d93a8', UI_BIG, 1);
   y += BH;
   let line2 = 'RNG ' + (eff.range >= 90 ? 'INF' : eff.range);
-  if (w.type === 'spray') line2 += ' PEL ' + eff.pellets;
-  if (w.type === 'bow') line2 += ' PIERCE-ALL';
-  if (w.type === 'flame') line2 += ' AOE+BURN';
-  if (w.type === 'bomber') line2 += ' BOUNCE 3X3';
-  drawText(c, line2, x + 6, y, '#aeb4c8', UI_BIG);
+  let zh2 = '射程·';
+  if (w.type === 'spray') { line2 += ' PEL ' + eff.pellets; zh2 += '弹丸'; }
+  if (w.type === 'bow') { line2 += ' PIERCE-ALL'; zh2 += '全穿透'; }
+  if (w.type === 'flame') { line2 += ' AOE+BURN'; zh2 += '范围灼烧'; }
+  if (w.type === 'bomber') { line2 += ' BOUNCE 3X3'; zh2 += '弹跳3×3'; }
+  if (w.type === 'sniper') zh2 += '无限';
+  drawBilingual(c, line2, zh2, x + 6, y, '#aeb4c8', '#8d93a8', UI_BIG, 1);
   y += BH + 1;
 
   // ammo
-  drawText(c, 'AMMO', x + 6, y, '#8d93a8', UI_SMALL);
+  drawBilingual(c, 'AMMO', '弹药', x + 6, y, '#8d93a8', '#5f6577', UI_SMALL, 1);
   if (g.musou) {
-    drawText(c, 'INFINITE', x + 44, y - 2, '#62c86a', UI_BIG);
+    drawBilingual(c, 'INFINITE', '无限', x + 44, y - 2, '#62c86a', '#4d8f52', UI_BIG, 1);
   } else {
     for (let i = 0; i < Math.min(w.maxAmmo, 12); i++) {
       drawShell(c, x + 44 + i * 7, y + (UI_SMALL - 1) * 2, i < w.ammo ? '#ffd75e' : '#3a3f50');
     }
   }
   y += SH + 3;
+
+  // active item（主动道具：以撒式充能复用，Q 键或点击使用）
+  g.itemRowY = -1;
+  {
+    g.itemRowY = y;
+    const has = !!g.activeItem;
+    const it = has ? itemById(g.activeItem.id) : null;
+    const full = has && g.activeItem.charge >= it.maxCharge;
+    if (has) {
+      if (full) pxRect(c, x + 4, y - 1, W - x - 8, SH + 2, 'rgba(232,195,74,0.14)');
+      drawItemIcon(c, it.id, x + 8, y + 1);
+      let ix = x + 20;
+      ix += drawBilingual(c, 'ITEM ' + it.en, it.zh, ix, y, full ? '#ffd75e' : '#8d93a8', full ? '#e8c34a' : '#5f6577', UI_SMALL, 1);
+      for (let i = 0; i < it.maxCharge; i++) {
+        pxRect(c, ix + 4 + i * 6, y + 2, 4, 4, i < g.activeItem.charge ? (full ? '#ffd75e' : '#b58a2e') : '#3a3f50');
+      }
+      drawText(c, UI_SMALL === 1 ? 'Q' : 'TAP', x + W - x - 26, y + 1, full ? '#ffd75e' : '#3a3f50', UI_SMALL);
+    } else {
+      drawText(c, 'ITEM', x + 6, y, '#3a3f50', UI_SMALL);
+      drawTextCJK(c, '道具', x + 6 + 4 * 4 + 4, y + UI_SMALL * 5 - CJK_FONT_PX, '#2a2f3f', 1);
+      drawText(c, '3/6/9F PICK', x + 6 + 60, y, '#2a2f3f', UI_SMALL);
+    }
+    y += SH;
+  }
+
+  // remnant bar（残躯栏：击杀掉落，T/Y 或点击使用）——常驻显示
+  g.relicRowY = -1;
+  {
+    g.relicRowY = y;
+    let ix = x + 6;
+    ix += drawText(c, 'RELIC', ix, y, '#8d93a8', UI_SMALL);
+    ix += drawTextCJK(c, '残躯', ix + 4, y + UI_SMALL * 5 - CJK_FONT_PX, '#5f6577', 1);
+    ix += 4;
+    for (let i = 0; i < 2; i++) {
+      const r = g.remnants[i];
+      pxRect(c, ix, y + 1, 11, 8, r ? '#243048' : '#14161c');
+      pxRect(c, ix, y + 1, 11, 1, r ? '#7cc0ff' : '#2a2f3f');
+      if (r) {
+        const ch = isXQ(g) ? (XQ_CHAR_BLACK[r.type] || '卒') : (PIECE_LETTER[r.type] || '?');
+        if (isXQ(g)) drawTextCJK(c, ch, ix + 1, y + 1, '#7cc0ff', 1);
+        else drawText(c, ch, ix + 2, y + 2, '#7cc0ff', UI_SMALL);
+      }
+      ix += 16;
+    }
+    drawText(c, UI_SMALL === 1 ? 'T/Y' : 'TAP', x + W - x - 26, y + 1, g.remnants.length ? '#7cc0ff' : '#3a3f50', UI_SMALL);
+    y += SH;
+  }
 
   // upgrade extras
   const s = g.stats;
@@ -1432,16 +2411,18 @@ function renderPanel(g) {
   const extraLines = Math.max(1, Math.ceil(extras.length / 4));
   const showExtraLines = compact ? Math.min(2, extraLines) : extraLines;
   for (let i = 0; i < showExtraLines; i++) {
-    drawText(c, extras.slice(i * 4, i * 4 + 4).join(' '), x + 6, y + i * SH, '#62c86a', UI_SMALL);
+    const seg = extras.slice(i * 4, i * 4 + 4);
+    const zhExtras = UI_SMALL === 1 ? seg.map(extrasZh).filter(Boolean).join(' ') : '';
+    drawBilingual(c, seg.join(' '), zhExtras, x + 6, y + i * SH, '#62c86a', '#4d8f52', UI_SMALL, 1);
   }
   y += showExtraLines * SH + 1;
 
   // owned cards
-  drawText(c, 'CARDS ' + g.cards.length, x + 6, y, '#8d93a8', UI_SMALL);
+  drawBilingual(c, 'CARDS ' + g.cards.length, '卡牌', x + 6, y, '#8d93a8', '#5f6577', UI_SMALL, 1);
   y += SH;
   const shown = compact ? g.cards.slice(-1) : g.cards.slice(-3);
   shown.forEach((cd, i) => {
-    drawText(c, cd.en.slice(0, 11), x + 6, y + i * SH, '#aeb4c8', UI_SMALL);
+    drawBilingual(c, cd.en.slice(0, 11), cd.zh, x + 6, y + i * SH, '#aeb4c8', '#6b7188', UI_SMALL, 1);
   });
   y += shown.length * SH + 1;
 
@@ -1450,16 +2431,19 @@ function renderPanel(g) {
   y += 3;
   const log = g.log.slice(-3);
   log.forEach((m, i) => {
-    drawText(c, m.text.slice(0, 30), x + 6, y + i * SH, i === log.length - 1 ? '#e8e2cf' : '#6b7188', UI_SMALL);
+    const col = i === log.length - 1 ? '#e8e2cf' : '#6b7188';
+    let cx = x + 6;
+    cx += drawText(c, m.text.slice(0, 16), cx, y + i * SH, col, UI_SMALL);
+    if (m.zh) drawTextCJK(c, m.zh.slice(0, 12), cx + 4, y + i * SH + UI_SMALL * 5 - CJK_FONT_PX, '#5f6577', 1);
   });
   y += log.length * SH;
 
   // weapon loadout (only when there is room; bottom bar always shows slots)
   if (y + SH * (g.weapons.length + 1) < 244) {
-    drawText(c, 'LOADOUT', x + 6, y, '#8d93a8', UI_SMALL);
+    drawBilingual(c, 'LOADOUT', '武器', x + 6, y, '#8d93a8', '#5f6577', UI_SMALL, 1);
     g.weapons.forEach((wp, i) => {
       const ammoTxt = g.musou ? 'INF' : wp.ammo + '/' + wp.maxAmmo;
-      drawText(c, (i + 1) + ' ' + wp.short + ' ' + ammoTxt, x + 6, y + (i + 1) * SH, i === g.weapon ? '#ffd75e' : '#aeb4c8', UI_SMALL);
+      drawBilingual(c, (i + 1) + ' ' + wp.short + ' ' + ammoTxt, WEAPON_ZH_SHORT[wp.id] || '', x + 6, y + (i + 1) * SH, i === g.weapon ? '#ffd75e' : '#aeb4c8', i === g.weapon ? '#b58a2e' : '#6b7188', UI_SMALL, 1);
     });
   }
 }
@@ -1467,10 +2451,11 @@ function renderPanel(g) {
 function renderButtons(g) {
   const c = ctx;
   const y = 246, h = 22;
-  const n = g.weapons.length + 1;
+  const n = g.weapons.length + 2;          // 武器 + 装弹 + 主动道具（显眼入口）
   const gap = 4;
   const bw = (W - 4 - (n - 1) * gap) / n;
-  const ty = y + Math.max(2, Math.floor((h - UI_BIG * 5) / 2));
+  // 桌面端按钮两行：英文在上、中文在下；手机端单行英文
+  const ty = UI_BIG >= 3 ? y + Math.max(2, Math.floor((h - UI_BIG * 5) / 2)) : y + 2;
   g.weapons.forEach((w, i) => {
     const bx = 2 + i * (bw + gap);
     const active = i === g.weapon;
@@ -1480,14 +2465,36 @@ function renderButtons(g) {
     pxRect(c, bx, y, 1, h, active ? '#e8c34a' : '#3a4052');
     pxRect(c, bx + Math.floor(bw) - 1, y, 1, h, active ? '#e8c34a' : '#3a4052');
     drawText(c, (i + 1) + ' ' + w.short, bx + 4, ty, active ? '#ffd75e' : '#8d93a8', UI_BIG);
+    if (UI_BIG === 2) drawTextCJK(c, WEAPON_ZH_SHORT[w.id] || '', bx + 4, ty + UI_BIG * 5 + 1, active ? '#b58a2e' : '#5f6577', 1);
   });
-  const bx = 2 + g.weapons.length * (bw + gap);
+  // reload
+  const bxR = 2 + g.weapons.length * (bw + gap);
   const rDisabled = g.musou;
-  pxRect(c, bx, y, Math.floor(bw), h, rDisabled ? '#12141c' : '#171a24');
-  pxRect(c, bx, y, Math.floor(bw), 1, '#3a4052');
-  pxRect(c, bx, y + h - 1, Math.floor(bw), 1, '#3a4052');
-  const rLabel = UI_BIG >= 3 ? 'R LOAD' : 'R RELOAD';
-  drawText(c, rLabel, bx + 4, ty, rDisabled ? '#3a3f50' : '#8d93a8', UI_BIG);
+  pxRect(c, bxR, y, Math.floor(bw), h, rDisabled ? '#12141c' : '#171a24');
+  pxRect(c, bxR, y, Math.floor(bw), 1, '#3a4052');
+  pxRect(c, bxR, y + h - 1, Math.floor(bw), 1, '#3a4052');
+  drawText(c, UI_BIG >= 3 ? 'LOAD' : 'R LOAD', bxR + 4, ty, rDisabled ? '#3a3f50' : '#8d93a8', UI_BIG);
+  if (UI_BIG === 2) drawTextCJK(c, '装弹', bxR + 4, ty + UI_BIG * 5 + 1, rDisabled ? '#3a3f50' : '#5f6577', 1);
+  // active item（主动道具按钮：充能满金色高亮，点击释放）
+  const bxI = 2 + (g.weapons.length + 1) * (bw + gap);
+  const it = g.activeItem ? itemById(g.activeItem.id) : null;
+  const itFull = it && g.activeItem.charge >= it.maxCharge;
+  pxRect(c, bxI, y, Math.floor(bw), h, it ? (itFull ? '#2a2f42' : '#171a24') : '#12141c');
+  pxRect(c, bxI, y, Math.floor(bw), 1, itFull ? '#e8c34a' : '#3a4052');
+  pxRect(c, bxI, y + h - 1, Math.floor(bw), 1, itFull ? '#e8c34a' : '#3a4052');
+  pxRect(c, bxI, y, 1, h, itFull ? '#e8c34a' : '#3a4052');
+  pxRect(c, bxI + Math.floor(bw) - 1, y, 1, h, itFull ? '#e8c34a' : '#3a4052');
+  drawText(c, 'ITEM', bxI + 4, ty, itFull ? '#ffd75e' : (it ? '#8d93a8' : '#3a3f50'), UI_BIG);
+  if (UI_BIG === 2) {
+    if (it) {
+      for (let i = 0; i < it.maxCharge; i++) {
+        pxRect(c, bxI + 4 + i * 6, ty + UI_BIG * 5 + 1, 4, 4, i < g.activeItem.charge ? (itFull ? '#ffd75e' : '#b58a2e') : '#3a3f50');
+      }
+    } else {
+      drawText(c, '3/6/9', bxI + 4, ty + UI_BIG * 5 + 1, '#3a3f50', UI_SMALL);
+      drawTextCJK(c, '层', bxI + 4 + 5 * 4 + 2, ty + UI_BIG * 5 + 1 + UI_SMALL * 5 - CJK_FONT_PX, '#2a2f3f', 1);
+    }
+  }
 }
 
 /* ==================================================================== AUDIO */
@@ -1575,28 +2582,45 @@ function showEndOverlay(g) {
     const title = document.getElementById('endTitle');
     const stats = document.getElementById('endStats');
     const note = document.getElementById('endNote');
-    const endlessBtn = document.getElementById('btnEndless');
     if (g.over) {
-      title.textContent = 'THE BLACK KING FALLS';
+      title.textContent = 'THE BLACK KING FALLS · 黑王陨落';
       title.style.color = '#d84a4a';
-      note.textContent = '白色棋子的攻势无穷无尽。换一套 Build 再爬一次吧——走位、弹药与卡牌缺一不可。';
-      endlessBtn.classList.add('hidden');
+      note.textContent = '白色棋子的攻势无穷无尽。即将返回主界面——换一套 Build 再爬一次吧！';
     } else if (g.won) {
-      title.textContent = 'TOWER CONQUERED';
+      title.textContent = g.chapter === 2 ? 'CHAPTER 2 CLEARED · 第二章通关' : 'CHAPTER 1 CLEARED · 第一章通关';
       title.style.color = '#e8c34a';
-      note.textContent = '黑王与他的军火库征服了十层高塔！真正的统治没有尽头——继续挑战无尽模式。';
-      endlessBtn.classList.remove('hidden');
+      note.textContent = g.chapter === 2
+        ? '黑王横扫楚河汉界，红帅俯首！即将返回主界面；想无限挑战？选择「无尽模式」再战！'
+        : '黑王征服了第一章！即将返回主界面；想无限挑战？选择「无尽模式」再战！';
     }
     stats.innerHTML =
       '模式 <b>' + g.modeId.toUpperCase() + '</b> · 层数 <b>' + g.floor + '</b> · 击杀 <b>' + g.kills + '</b> · ' +
       '回合 <b>' + g.turn + '</b> · 卡牌 <b>' + g.cards.length + '</b> · 得分 <b>' + g.score + '</b>';
     overlay.classList.remove('hidden');
+    // 输/赢都默认自动返回主界面
+    clearTimeout(g.menuTimer);
+    g.menuTimer = setTimeout(returnToMenu, g.over ? 3200 : 3800);
   }, g.over ? 500 : 400);
 }
 
 function hideEndOverlay() {
   if (typeof document === 'undefined') return;
   document.getElementById('endOverlay').classList.add('hidden');
+}
+
+/* 返回主界面：输/赢后默认回到章节+模式选择 */
+function returnToMenu() {
+  if (typeof document === 'undefined') return;
+  clearTimeout(g && g.menuTimer);
+  hideEndOverlay();
+  if (typeof hideCardOverlay === 'function') hideCardOverlay();
+  if (typeof hideItemOverlay === 'function') hideItemOverlay();
+  const start = document.getElementById('startOverlay');
+  if (start) start.classList.remove('hidden');
+  selChapter = null;
+  selMode = null;
+  refreshStartState();
+  if (typeof sfx === 'function') sfx('move');
 }
 
 /* ==================================================================== INPUT */
@@ -1649,12 +2673,16 @@ function aimAngleAt(sx, sy) {
 function buttonHit(e) {
   const { sx, sy } = canvasPoint(e);
   if (sy < 246 || sy > 268) return null;
-  const n = g.weapons.length + 1;
+  const n = g.weapons.length + 2;
   const gap = 4;
   const bw = (W - 4 - (n - 1) * gap) / n;
   for (let i = 0; i < n; i++) {
     const bx = 2 + i * (bw + gap);
-    if (sx >= bx && sx < bx + bw) return i < g.weapons.length ? ('w' + i) : 'reload';
+    if (sx >= bx && sx < bx + bw) {
+      if (i < g.weapons.length) return 'w' + i;
+      if (i === g.weapons.length) return 'reload';
+      return 'item';
+    }
   }
   return null;
 }
@@ -1662,19 +2690,37 @@ function buttonHit(e) {
 function overlayOpen() {
   return document.getElementById('cardOverlay').classList.contains('hidden') === false ||
          document.getElementById('endOverlay').classList.contains('hidden') === false ||
-         document.getElementById('startOverlay').classList.contains('hidden') === false;
+         document.getElementById('startOverlay').classList.contains('hidden') === false ||
+         (document.getElementById('itemOverlay') && document.getElementById('itemOverlay').classList.contains('hidden') === false);
 }
 
 function handleCanvasClick(e) {
   if (now() < suppressClickUntil) return;         // tap that ended in a swipe already moved
   if (!g || g.over || g.phase !== 'player' || overlayOpen()) return;
+  const { sx, sy } = canvasPoint(e);
+  // 残躯瞄准模式：点击可达格执行，点击非法格取消
+  if (g.relicMode) {
+    const cell = boardCellFromEvent(e);
+    if (cell) chooseRemnant(g, cell.x, cell.y);
+    else g.relicMode = null;
+    return;
+  }
+  // 面板热区：主动道具 / 残躯槽
+  if (sx >= PANEL_X) {
+    if (g.itemRowY >= 0 && sy >= g.itemRowY && sy < g.itemRowY + 8) { useItem(g); return; }
+    if (g.relicRowY >= 0 && sy >= g.relicRowY && sy < g.relicRowY + 8) {
+      useRemnantSlot(g, sx < PANEL_X + 100 ? 0 : 1);
+      return;
+    }
+    return;
+  }
   const btn = buttonHit(e);
   if (btn) {
     if (btn === 'reload') playerAction(g, 'reload', 0);
+    else if (btn === 'item') useItem(g);
     else g.weapon = parseInt(btn.slice(1), 10);
     return;
   }
-  const { sx, sy } = canvasPoint(e);
   // only fire from clicks inside the board area (panel/top-strip clicks are ignored)
   if (sx < BX - 2 || sx > BX + CELL * 8 + 2 || sy < BY - 2 || sy > BY + CELL * 8 + 2) return;
   const cell = boardCellFromEvent(e);
@@ -1756,6 +2802,9 @@ function handleKey(e) {
     return;
   }
   if (k === 'r') { playerAction(g, 'reload', 0); return; }
+  if (k === 'q') { useItem(g); return; }
+  if (k === 't') { useRemnantSlot(g, 0); return; }
+  if (k === 'y') { useRemnantSlot(g, 1); return; }
   const d = keyDir(k);
   if (d == null) return;
   if (g.phase !== 'player' || g.over || overlayOpen()) return;
@@ -1764,13 +2813,14 @@ function handleKey(e) {
   if (inB(tx, ty) && !blockedAt(g, tx, ty)) playerAction(g, 'move', { x: tx, y: ty });
 }
 
-function startGame(modeId) {
-  g = newGame(modeId);
+function startGame(modeId, chapter) {
+  g = newGame(modeId, chapter);
   spawnFloor(g);
   hideEndOverlay();
   document.getElementById('startOverlay').classList.add('hidden');
   document.getElementById('cardOverlay').classList.add('hidden');
   document.getElementById('endOverlay').classList.add('hidden');
+  if (typeof hideItemOverlay === 'function') hideItemOverlay();
   // PWA / mobile: lock to landscape when the platform allows it
   try {
     if (screen.orientation && screen.orientation.lock) {
@@ -1779,13 +2829,81 @@ function startGame(modeId) {
   } catch (err) { /* desktop browsers: ignore */ }
 }
 
-function endlessContinue() {
-  if (!g || !g.won) return;
-  g.endless = true;
-  g.won = false;
-  g.floor++;
-  spawnFloor(g);
-  hideEndOverlay();
+/* ------------------------------------------------------- chapter selection */
+/* 章节 + 模式 双选后才可开始：单独点章节或模式不会开局 */
+let selChapter = null;
+let selMode = null;
+
+function refreshStartState() {
+  if (typeof document === 'undefined') return;
+  const play = document.getElementById('btnPlay');
+  const modeNote = document.getElementById('modeNote');
+  if (!play) return;
+  const ch = selChapter != null ? CHAPTERS.find(c => c.id === selChapter) : null;
+  // 规则提示：第一章国际象棋 / 第二章中国象棋
+  if (modeNote) {
+    modeNote.textContent = ch
+      ? (ch.id === 2 ? '第二章 · 中国象棋规则（兵/马/相/仕/车/炮/帅 + 精英）' : '第一章 · 国际象棋规则（兵/马/象/车/后/王 + 铭牌标识）')
+      : '请先选择章节';
+  }
+  const ready = ch && selMode != null;
+  if (ready) {
+    play.classList.remove('hidden');
+    play.textContent = '开始：' + ch.zh + ' · ' + (MODE_ZH[selMode] || selMode) + ' ▶';
+  } else {
+    play.classList.add('hidden');
+  }
+  // 章节/模式按钮高亮
+  document.querySelectorAll('#chapterList .chapter').forEach(b => {
+    const id = parseInt(b.dataset.ch, 10);
+    b.classList.toggle('selected', id === selChapter);
+  });
+  document.querySelectorAll('#modeBtns .modebtn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.mode === selMode);
+  });
+}
+
+function selectChapter(id) {
+  const ch = CHAPTERS.find(c => c.id === id);
+  if (!ch) return;
+  if (!ch.unlocked) {
+    if (typeof document !== 'undefined') {
+      const b = document.querySelector('#chapterList .chapter[data-ch="' + id + '"]');
+      if (b) {
+        b.classList.add('shaken');
+        setTimeout(() => b.classList.remove('shaken'), 320);
+      }
+    }
+    return;
+  }
+  selChapter = id;
+  refreshStartState();
+}
+
+function selectMode(mode) {
+  selMode = mode;
+  refreshStartState();
+}
+
+function startSelected() {
+  if (selChapter == null || selMode == null) return;
+  startGame(selMode, selChapter);
+}
+
+function buildChapterList() {
+  if (typeof document === 'undefined') return;
+  const wrap = document.getElementById('chapterList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const ch of CHAPTERS) {
+    const b = document.createElement('button');
+    b.className = 'chapter ' + (ch.unlocked ? 'open' : 'locked');
+    b.dataset.ch = String(ch.id);
+    b.innerHTML = '<b>' + (ch.unlocked ? '' : '🔒 ') + ch.zh + '</b><span>' + ch.en + ' · ' + ch.sub + '</span>';
+    b.addEventListener('click', () => selectChapter(ch.id));
+    wrap.appendChild(b);
+  }
+  refreshStartState();
 }
 
 /* ==================================================================== BOOT */
@@ -1812,11 +2930,13 @@ if (typeof document !== 'undefined') {
     window.addEventListener('keydown', handleKey);
 
     document.querySelectorAll('#modeBtns .modebtn').forEach(btn => {
-      btn.addEventListener('click', () => { startGame(btn.dataset.mode); if (typeof sfx === 'function') sfx('pick'); });
+      btn.addEventListener('click', () => { selectMode(btn.dataset.mode); if (typeof sfx === 'function') sfx('pick'); });
     });
-    document.getElementById('btnAgain').addEventListener('click', () => { startGame(g ? g.modeId : 'classic'); });
-    document.getElementById('btnEndless').addEventListener('click', endlessContinue);
+    document.getElementById('btnPlay').addEventListener('click', () => { startSelected(); if (typeof sfx === 'function') sfx('pick'); });
+    document.getElementById('btnAgain').addEventListener('click', returnToMenu);
     document.getElementById('btnSkip').addEventListener('click', () => { if (g) skipCard(g); });
+    document.getElementById('btnItemSkip').addEventListener('click', () => { if (g) skipItem(g); });
+    buildChapterList();
 
     // PWA install prompt
     const installBtn = document.getElementById('btnInstall');
@@ -1854,8 +2974,13 @@ if (typeof module !== 'undefined' && module.exports) {
     newGame, spawnFloor, playerAction, enemyPhase, endFloor,
     legalPlayerMoves, legalEnemyMoves, threatMap, pickEnemyMove,
     pieceAt, obstacleAt, whiteKing, raycast, effectiveWeapon,
+    spawnPiece,
     fireRayWeapon, fireFlame, fireBomber, damagePiece, damageObstacle, damagePlayer,
     rollCards, applyCard, chooseCard, skipCard, CARDS, WEAPON_DEFS, DIRS, inB, render,
-    showCardOverlay, hideCardOverlay, showEndOverlay, hideEndOverlay
+    showCardOverlay, hideCardOverlay, showEndOverlay, hideEndOverlay, CHAPTERS, ITEMS,
+    useRemnantSlot, chooseRemnant, relicMoves, useItem,
+    showItemOverlay, hideItemOverlay, chooseItem, skipItem,
+    spawnXiangqiFloor, eliteMoves, elitePickMove, playerInElite,
+    selectChapter, selectMode, startSelected, returnToMenu, spawnBase, cycleBonus
   };
 }

@@ -74,7 +74,8 @@ function fireAt(g, angle) {
     const g = G.newGame();
     G.spawnFloor(g);
     g.pieces.length = 0;
-    g.weapons = [G.WEAPON_DEFS.warbow && { ...G.WEAPON_DEFS.warbow, ammo: 1 }];
+    // cone=0：固定 -90° 垂直射线（避免 ±5° 随机锥角擦过格边导致偶发漏格）
+    g.weapons = [G.WEAPON_DEFS.warbow && { ...G.WEAPON_DEFS.warbow, ammo: 1, cone: 0 }];
     g.weapon = 0;
     g.player.x = 4; g.player.y = 7;
     for (let y = 0; y <= 2; y++) {
@@ -132,7 +133,8 @@ function fireAt(g, angle) {
     const w = g.weapons[0];
     w.ammo = 9; w.maxAmmo = 9;
     g.stats.range = 7; g.stats.pierce = 8;
-    const target = g.obstacles.find(o => o.x === 4 && o.y < 7);
+    // 取第 4 列离玩家最近的障碍（射线先命中它；同列更远的障碍会被它挡住）
+    const target = g.obstacles.filter(o => o.x === 4).sort((a, b) => b.y - a.y)[0];
     if (target) {
       const before = target.hp;
       await fireAt(g, -90);
@@ -168,10 +170,14 @@ function fireAt(g, angle) {
     if (g.weapons.length !== 1 || g.weapons[0].id !== 'sniper') throw new Error('sniper mode weapon loadout wrong');
     const eff = G.effectiveWeapon(g, g.weapons[0]);
     if (eff.range < 90) throw new Error('sniper should be infinite range');
-    const k = G.whiteKing(g);
     g.player.x = 0; g.player.y = 7;
-    const ang = Math.atan2(k.y - 7, k.x - 0) * 180 / Math.PI;
-    for (let i = 0; i < 4 && !g.floorCleared && !g.over; i++) await fireAt(g, ang);
+    // 每发重新瞄准白王（白王每回合可能移动；挡路的棋子会被一枪带走）
+    for (let i = 0; i < 6 && !g.floorCleared && !g.over; i++) {
+      const k = G.whiteKing(g);
+      if (!k) break;
+      const ang = Math.atan2(k.y - 7, k.x - 0) * 180 / Math.PI;
+      await fireAt(g, ang);
+    }
     if (!g.floorCleared) throw new Error('sniper failed to kill king from corner');
     console.log('sniper mode OK');
   }
