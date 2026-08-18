@@ -16,7 +16,11 @@ const TAU = Math.PI * 2;
 
 const DIRS = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
 
-function inB(x, y) { return x >= 0 && x < 8 && y >= 0 && y < 8; }
+function inB(x, y) {
+  // 达阵（touchdown）为 8×32 长条棋盘，其余为 8×8；boardH 由当前对局决定
+  const H = (g && g.boardH) || 8;
+  return x >= 0 && x < 8 && y >= 0 && y < H;
+}
 function cheb(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
 function now() { return typeof performance !== 'undefined' ? performance.now() : Date.now(); }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -91,7 +95,7 @@ function drawLine(c, x0, y0, x1, y1, color) {
 
 /* ------------------------------------------------------ bilingual (zh) text */
 const CN_NUM = ['零','一','二','三','四','五','六','七','八','九'];
-const MODE_ZH = { classic:'经典', musou:'无双', obstacle:'障碍', sniper:'狙击', endless:'无尽', xiangqi:'象棋' };
+const MODE_ZH = { classic:'经典', musou:'无双', obstacle:'障碍', sniper:'狙击', endless:'无尽', xiangqi:'象棋', ring:'环城', night:'夜袭', touchdown:'达阵' };
 const WEAPON_ZH = {
   shotgun:'霰弹枪', choke:'集束霰弹', warbow:'弓箭',
   flamer:'火焰喷射器', bomber:'投弹手', sniper:'狙击枪'
@@ -100,7 +104,7 @@ const WEAPON_ZH_SHORT = {
   shotgun:'霰弹', choke:'集束', warbow:'弓箭',
   flamer:'喷火', bomber:'投弹', sniper:'狙击'
 };
-const PT_ZH = { pawn:'兵', knight:'马', bishop:'象', rook:'车', queen:'后', king:'王' };
+const PT_ZH = { pawn:'兵', knight:'马', bishop:'象', rook:'车', queen:'后', king:'王', alfil:'象', fers:'后', faras:'马', rukh:'车' };
 const EXTRAS_ZH = {
   BLAST:'爆裂', BURN:'灼烧', VAMP:'吸血', THORN:'荆棘', SCOPE:'瞄准', CRIT:'暴击',
   FASTLOAD:'速装', FIRST:'先手', DOUBLE:'双发', SAVE:'保命', SHIELD:'护盾',
@@ -116,6 +120,7 @@ function extrasZh(e) {
    在两种规则下都可用 */
 function isXQ(g) { return g.chapter === 2; }
 function isSHOGI(g) { return g.chapter === 3; }
+function isPERSIAN(g) { return g.chapter === 4; }
 
 /* ------------------------------------------------------------ shogi (ch.3) */
 const SHOGI_CHAR = { king:'王', rook:'飛', bishop:'角', gold:'金', silver:'銀', knight:'桂', lance:'香', pawn:'歩' };
@@ -150,12 +155,36 @@ const CHAPTERS = [
   { id: 1, en: 'THE BLACK THRONE', zh: '第一章 · 王座之路', sub: '经典塔 · 共 10 层', unlocked: true },
   { id: 2, en: 'ACROSS THE RIVER', zh: '第二章 · 楚河汉界', sub: '中国象棋 · 共 10 层', unlocked: true },
   { id: 3, en: 'HEIAN CAPITAL', zh: '第三章 · 平安京', sub: '将棋 · 共 10 层', unlocked: true },
+  { id: 4, en: 'A THOUSAND AND ONE NIGHTS', zh: '第四章 · 一千零一夜', sub: '波斯象棋 · 共 10 层', unlocked: true },
 ];
 
 /* ---------------------------------------------------------- xiangqi (ch.2) */
 const XQ_CHAR = { king:'帅', advisor:'仕', bishop:'相', knight:'马', rook:'车', cannon:'炮', pawn:'兵' };
 const XQ_CHAR_BLACK = { king:'将', advisor:'士', bishop:'象', knight:'马', rook:'車', cannon:'砲', pawn:'卒' };
 const ELITE_SUBTYPES = ['rook', 'cannon', 'knight', 'bishop', 'pawn'];
+
+/* ---------------------------------------------------------- persian (ch.4) */
+/* 第四章 · 一千零一夜（波斯象棋 Shatranj）：红方为古波斯棋子，棋子偏弱——
+   兵(Pawn) 前进 1/斜吃 1 · 象(Alfil) 田字对角跳 2（可越子）·
+   后(Fers) 斜走 1 · 马(Faras) 日字跳 · 车(Rukh) 直线任意 · 王(Shah) 八方 1 格。
+   招牌机制：
+   - 擒王（裸王即胜）：红方只剩王（无护卫）立即通关，不必杀王；
+   - 小沙暴：常驻沙粒粒子动画，敌方受击伤害按距离衰减（越远越难打穿沙幕）；
+   - 大沙暴：周期性掩蔽棋盘格子（沙幕盖住格子与其中棋子），开火清除
+     攻击路径上的沙暴覆盖格。 */
+const PERSIAN_LETTER = { pawn:'P', alfil:'A', fers:'F', faras:'N', rukh:'R', king:'S' };
+/* 波斯棋子外形映射：经典国际象棋剪影（大头像）+ 波斯配色微调 */
+const PERSIAN_SHAPE = { pawn:'pawn', alfil:'bishop', fers:'queen', faras:'knight', rukh:'rook', king:'king' };
+const PERSIAN_ACCENT = {
+  pawn:'#8d93a8', alfil:'#c77cf0', fers:'#7cc0ff', faras:'#ff9a4d', rukh:'#ffd75e', king:'#e8c34a'
+};
+const PERSIAN_ZH = { pawn:'兵', alfil:'象', fers:'后', faras:'马', rukh:'车', king:'王' };
+/* 大沙暴：每 sandInterval 个敌方回合袭来一次 */
+const SAND_INTERVAL = 3;
+const SAND_COVER_MIN = 8, SAND_COVER_MAX = 16;
+/* 夜袭：黑王身边基础照亮半径（格）；开火照亮范围持续时长 */
+const NIGHT_BASE_R = 2;
+const NIGHT_LIT_MS = 1500;
 
 /* 第一章白方棋子辨识度：差异化强调色 + 底座铭牌字母 */
 const PIECE_ACCENT = {
@@ -327,12 +356,20 @@ function defaultStats() {
 function newGame(modeId, chapter, advance) {
   modeId = modeId || 'classic';
   if (modeId === 'xiangqi') { modeId = 'classic'; chapter = chapter || 2; }   // 兼容旧调用
-  const g = {
+  const ng = {
     modeId,
-    chapter: chapter || 1,           // 主线章节：1 = 国际象棋，2 = 中国象棋
+    chapter: chapter || 1,           // 主线章节：1 = 国际象棋，2 = 中国象棋，3 = 将棋，4 = 波斯
     advance: advance || 0,           // 进阶难度（全局叠加 0-10）
     musou: modeId === 'musou',
     obstacleMode: modeId === 'obstacle',
+    ring: modeId === 'ring',         // 环城：棋盘上下左右互通（环面）
+    night: modeId === 'night',       // 夜袭：视野迷雾，照亮区域比攻击范围大一圈并渐黑
+    touchdown: modeId === 'touchdown', // 达阵：宽 8 长 32 长条棋盘，达阵到底线通关
+    boardH: 8,                       // 棋盘高度（达阵 = 32 行长条）
+    camY: 0,                         // 达阵视口：当前显示的 8 行起点
+    sandCells: [],                   // 第四章：大沙暴覆盖格 [{x,y}]
+    sandTimer: SAND_INTERVAL,        // 距下次大沙暴的敌方回合数
+    pendingCards: 1,                 // 达阵：本层剩余选卡次数（每层 2 张被动）
     remnants: [],                  // 残躯栏（最多 2）：击杀掉落，一次性黑棋行进（第 1/2 章）
     hand: [],                      // 持驹栏（最多 3）：第三章将棋打入（我方）
     enemyHand: 0,                  // 敌方持驹计数（第三章：吃掉我方棋子后打入）
@@ -378,15 +415,17 @@ function newGame(modeId, chapter, advance) {
     log: [],
     hover: null,
     bombTarget: null,
+    litCells: [],        // 夜袭：开火照亮的格（{x,y,t0}，短时）
     turbo: false,
     autoPick: false
   };
   // 进阶 VII 君权谁授：王冠上限 -1
-  if (g.advance >= 7) {
-    g.player.maxHp = Math.max(1, g.player.maxHp - 1);
-    g.player.hp = Math.min(g.player.hp, g.player.maxHp);
+  if (ng.advance >= 7) {
+    ng.player.maxHp = Math.max(1, ng.player.maxHp - 1);
+    ng.player.hp = Math.min(ng.player.hp, ng.player.maxHp);
   }
-  return g;
+  g = ng;                 // 同步"当前对局"（startGame 与测试/工具调用均生效）
+  return ng;
 }
 function activeWeapon(g) { return g.weapons[g.weapon]; }
 
@@ -407,15 +446,18 @@ function blockedAt(g, x, y) { return pieceAt(g, x, y) || obstacleAt(g, x, y); }
 function whiteKing(g) { return g.pieces.find(p => p.type === 'king'); }
 function pieceValue(type) {
   return { pawn:1, knight:3, bishop:3, rook:5, queen:9, king:20, cannon:4, advisor:2, elite:15,
-           lance:2, silver:3, gold:4, dragonHorse:7, dragonKing:8 }[type] || 1;
+           lance:2, silver:3, gold:4, dragonHorse:7, dragonKing:8,
+           alfil:3, fers:2, faras:3, rukh:5 }[type] || 1;
 }
 function baseHp(type) {
   return { pawn:1, knight:2, bishop:2, rook:3, queen:4, king:1, cannon:2, advisor:2, elite:4,
-           lance:2, silver:2, gold:3, dragonHorse:4, dragonKing:5 }[type] || 1;
+           lance:2, silver:2, gold:3, dragonHorse:4, dragonKing:5,
+           alfil:2, fers:2, faras:2, rukh:3 }[type] || 1;
 }
 function baseDmg(type) {
   return { pawn:1, knight:2, bishop:2, rook:2, queen:3, king:1, cannon:2, advisor:1, elite:2,
-           lance:1, silver:2, gold:2, dragonHorse:2, dragonKing:2 }[type] || 1;
+           lance:1, silver:2, gold:2, dragonHorse:2, dragonKing:2,
+           alfil:2, fers:1, faras:2, rukh:3 }[type] || 1;
 }
 function hpScale(f) { return 1 + Math.floor((f - 1) / 4); }
 function enemyHp(type, f) { return baseHp(type) * hpScale(f); }
@@ -439,6 +481,7 @@ function spawnPiece(g, type, x, y, opts) {
     dmg: o.dmg != null ? o.dmg : enemyDmg(type, f),
     boss: !!o.boss,
     e: !!o.e,                      // 精英棋子：占 2×2 格、位于交叉点
+    noMove: !!o.noMove,            // 达阵白王：镇守底线不移位（仅威胁相邻格）
     subtype: o.subtype,
     burned: false,
     slowed: false,
@@ -462,10 +505,12 @@ function emptyCellsIn(g, rows) {
 function spawnObstacles(g) {
   const f = spawnBase(g);                 // 循环模式按难度基础层
   const n = Math.min(14, 7 + Math.floor(f / 2));
+  const yTop = g.touchdown ? 2 : 1;
+  const yBot = g.touchdown ? Math.min(30, (g.boardH || 8) - 2) : 6;
   let placed = 0, tries = 0;
   while (placed < n && tries < 300) {
     tries++;
-    const x = ri(0, 7), y = ri(1, 6);
+    const x = ri(0, 7), y = ri(yTop, yBot);
     if (blockedAt(g, x, y)) continue;
     if (cheb({ x, y }, g.player) <= 1) continue;
     const hp = 2 + (f >= 5 ? 1 : 0);
@@ -529,6 +574,8 @@ function spawnFloor(g) {
 
   if (isXQ(g)) { spawnXiangqiFloor(g); return; }
   if (isSHOGI(g)) { spawnShogiFloor(g); return; }
+  if (isPERSIAN(g)) { spawnPersianFloor(g); return; }
+  if (g.touchdown) { spawnTouchdownFloor(g); return; }
 
   if (g.stats.shieldPerFloor) g.shield = Math.min(2, g.shield + 1);
 
@@ -885,6 +932,253 @@ function spawnShogiFloor(g) {
   g.phase = 'player';
 }
 
+/* ------------------------------------------------------- persian floor (ch.4) */
+/* 波斯（一千零一夜）：红方按古波斯象棋（Shatranj）走法逼近（兵/象/后/马/车/王）。
+   擒王：清光护卫（只剩王）即通关；小沙暴常驻（距离减伤 + 粒子动画）；
+   大沙暴周期性掩蔽棋盘（开火清除路径沙暴格）。 */
+function spawnPersianFloor(g) {
+  const f = g.floor;
+  const effF = spawnBase(g);
+  const cb = cycleBonus(g);
+  g.pieces = [];
+  g.obstacles = [];
+  g.floorCleared = false;
+  g.player.x = 4; g.player.y = 7; g.player.moving = null;
+  g.insuranceUsed = false;
+  g.freeMoveUsed = false;
+  g.dragonAtkUsed = false;                // 龙怒：每层首次攻击重置
+  g.bonusDmg = 0;
+  g.flashes = [];
+  g.floats = [];
+  g.tracers = [];
+  g.bomb = null;
+
+  if (g.stats.shieldPerFloor) g.shield = Math.min(2, g.shield + 1);
+
+  let kingHp = effF === 10 ? 12 : 2 + Math.floor((effF - 1) / 2);
+  kingHp += cb;                            // 每完成一个 10 层循环敌人 +1 生命
+  kingHp += (g.advance >= 8 ? 2 : 0);      // 进阶 VIII 执牛耳者：王血量 +2
+  const nKings = g.advance >= 10 ? 2 : 1;  // 进阶 X 逐鹿中原：双王
+  for (let i = 0; i < nKings; i++) {
+    let kx, ky, tries = 0;
+    do { kx = ri(0, 7); ky = ri(0, 2); tries++; } while (blockedAt(g, kx, ky) && tries < 40);
+    spawnPiece(g, 'king', kx, ky, { hp: kingHp, dmg: 1 });
+  }
+
+  const pool = ['pawn', 'alfil'];
+  if (effF >= 2) pool.push('faras');
+  if (effF >= 3) pool.push('fers');
+  if (effF >= 4) pool.push('rukh');
+  let count = Math.min(9, Math.floor(2 + effF * 0.75 + (effF >= 4 ? 1 : 0) + (effF >= 7 ? 1 : 0)));
+  const hasBoss = effF >= 5 && effF % 5 === 0;
+  if (hasBoss) count = Math.max(3, count - 2);
+  if (effF === 10) count = 6;
+
+  const typeWeight = () => {
+    const w = {};
+    for (const t of pool) {
+      if (t === 'pawn') w[t] = Math.max(1, 5 - effF);
+      else if (t === 'alfil') w[t] = 3;
+      else if (t === 'faras') w[t] = 2;
+      else if (t === 'fers') w[t] = 2;
+      else if (t === 'rukh') w[t] = effF >= 5 ? 2 : 1;
+    }
+    return w;
+  };
+  const pickType = () => {
+    const w = typeWeight();
+    const total = Object.values(w).reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (const t of pool) { r -= w[t]; if (r <= 0) return t; }
+    return 'pawn';
+  };
+  const cellsFor = (t) => {
+    const cells = [];
+    if (t === 'pawn') {   // 兵在前线（第 3/4 行）
+      for (const y of [2, 3]) for (let x = 0; x < 8; x++) if (!blockedAt(g, x, y)) cells.push({ x, y });
+    } else {
+      for (const y of [0, 1, 2, 3]) for (let x = 0; x < 8; x++) if (!blockedAt(g, x, y)) cells.push({ x, y });
+    }
+    return shuffle(cells);
+  };
+
+  for (let i = 0; i < count; i++) {
+    const t = pickType();
+    const cells = cellsFor(t);
+    if (!cells.length) continue;
+    const c = cells.pop();
+    spawnPiece(g, t, c.x, c.y);
+  }
+
+  if (hasBoss) {
+    // Boss 层：苏丹卫队大将（大车）
+    const cells = cellsFor('rukh');
+    if (cells.length) {
+      const c = cells.pop();
+      spawnPiece(g, 'rukh', c.x, c.y, { boss: true, hp: 9 + effF + cb, dmg: 3 });
+    }
+  }
+
+  if (g.obstacleMode) spawnObstacles(g);
+
+  if (g.stats.decree) {
+    const targets = g.pieces.filter(p => p.type !== 'king');
+    if (targets.length) {
+      const t = targets[ri(0, targets.length - 1)];
+      killPiece(g, t, 'decree', true);
+      msg(g, 'ROYAL DECREE: A GUARD DESERTED!', '御前王令：一名护卫叛逃');
+    }
+  }
+
+  applyAdvanceSpawns(g);
+
+  // 大沙暴初始覆盖 + 定时器复位（小沙暴常驻粒子在渲染层处理）
+  g.sandTimer = SAND_INTERVAL;
+  sandStorm(g);
+
+  msg(g, 'FLOOR ' + f + ' - STRIP THE ESCORT!', '第 ' + f + ' 层 · 擒王：清光护卫');
+  g.phase = 'player';
+}
+
+/* ------------------------------------------------------ touchdown floor */
+/* 达阵：宽 8 长 32 的长条棋盘（8×32），视口每次显示当前 8 行；
+   敌人按章节棋子类型沿长条均布（密度均匀、数量随层数增加），追击黑王；
+   黑王从顶部一路杀向底线（y=31）即达阵通关；每层通关奖励 2 张被动卡。 */
+function touchdownPool(g, effF) {
+  if (isXQ(g)) {
+    const p = ['pawn', 'advisor', 'bishop', 'knight'];
+    if (effF >= 3) p.push('cannon');
+    if (effF >= 4) p.push('rook');
+    return p;
+  }
+  if (isSHOGI(g)) {
+    const p = ['pawn', 'lance', 'knight', 'silver', 'gold'];
+    if (effF >= 2) p.push('bishop');
+    if (effF >= 3) p.push('rook');
+    return p;
+  }
+  if (isPERSIAN(g)) {
+    const p = ['pawn', 'alfil'];
+    if (effF >= 2) p.push('faras');
+    if (effF >= 3) p.push('fers');
+    if (effF >= 4) p.push('rukh');
+    return p;
+  }
+  const p = ['pawn'];
+  if (effF >= 2) p.push('knight');
+  if (effF >= 3) p.push('bishop');
+  if (effF >= 4) p.push('rook');
+  if (effF >= 6) p.push('queen');
+  return p;
+}
+
+function spawnTouchdownFloor(g) {
+  const f = g.floor;
+  const effF = spawnBase(g);
+  const cb = cycleBonus(g);
+  g.boardH = 32;                           // 长条棋盘：宽 8 长 32
+  g.pieces = [];
+  g.obstacles = [];
+  g.floorCleared = false;
+  g.player.x = 4; g.player.y = 1; g.player.moving = null;
+  g.camY = 0;
+  g.insuranceUsed = false;
+  g.freeMoveUsed = false;
+  g.dragonAtkUsed = false;
+  g.bonusDmg = 0;
+  g.flashes = [];
+  g.floats = [];
+  g.tracers = [];
+  g.bomb = null;
+  if (g.stats.shieldPerFloor) g.shield = Math.min(2, g.shield + 1);
+
+  // 敌人沿长条均布（行 2..30，底线行 31 留给白王）：密度均匀、数量随层数增加
+  const pool = touchdownPool(g, effF);
+  const count = Math.min(34, 10 + Math.floor(effF * 2));
+  let placed = 0;
+  for (let i = 0; i < count && placed < 40; i++) {
+    const t = pool[ri(0, pool.length - 1)];
+    const y = 2 + Math.round((i + 0.5) * 28 / count);   // 均匀行距（密度不变）
+    const x = ri(0, 7);
+    if (blockedAt(g, x, y)) continue;
+    if (Math.abs(x - g.player.x) + Math.abs(y - g.player.y) < 2) continue;
+    spawnPiece(g, t, x, y);
+    placed++;
+  }
+
+  // 白王镇守底线（达阵区 y=31）：不移位、威胁相邻格；击杀它或越过底线均达阵
+  const nKings = g.advance >= 10 ? 2 : 1;
+  for (let i = 0; i < nKings; i++) {
+    spawnPiece(g, 'king', Math.max(0, 4 - i), 31, { noMove: true });
+  }
+
+  if (g.obstacleMode) spawnObstacles(g);
+  applyAdvanceSpawns(g);
+
+  msg(g, 'FLOOR ' + f + ' - WHITE KING HOLDS THE GOAL LINE!', '第 ' + f + ' 层 · 达阵：白王镇守底线，杀到底线通关');
+  g.phase = 'player';
+}
+
+/* ------------------------------------------------------------- sandstorm */
+/* 第四章沙暴（双机制）：
+   - 小沙暴：常驻。沙幕阻隔弹道，敌方棋子受击伤害按与黑王的距离衰减
+     （每格 -12%，最低保留 50%）；渲染层有飘动沙粒粒子动画。
+   - 大沙暴：每 SAND_INTERVAL 个敌方回合袭来一次，掩蔽随机棋盘格；
+     开火清除攻击路径上的沙暴覆盖格；覆盖格内的棋子被沙幕掩蔽（不可见）。 */
+function sandstormFactor(g, x, y) {
+  if (!isPERSIAN(g)) return 1;
+  const d = Math.hypot(x - g.player.x, y - g.player.y);
+  return Math.max(0.5, 1 - d * 0.12);       // 每格 -12%，最低保留 50%
+}
+
+function sandStorm(g) {
+  if (!isPERSIAN(g)) return;
+  const maxN = Math.min(SAND_COVER_MAX, SAND_COVER_MIN + Math.floor(g.floor / 2));
+  let placed = 0, tries = 0;
+  while (placed < maxN && tries < 200) {
+    tries++;
+    const x = ri(0, 7), y = ri(1, 6);
+    if (blockedAt(g, x, y)) continue;
+    if (cheb({ x, y }, g.player) <= 1) continue;
+    if (g.sandCells.some(s => s.x === x && s.y === y)) continue;
+    g.sandCells.push({ x, y });
+    placed++;
+  }
+  if (placed > 0) {
+    msg(g, 'SANDSTORM SWEEPS THE BOARD!', '大沙暴席卷棋盘！');
+    spawnFloat(g, 4, 1, 'SANDSTORM!', '#e8c34a', '大沙暴！');
+  }
+}
+
+/* 开火清除弹道路径上的沙暴覆盖格（每半步一格） */
+function clearSandAlong(g, angDeg, maxDist) {
+  if (!isPERSIAN(g) || !g.sandCells.length) return;
+  const rad = angDeg * Math.PI / 180;
+  const dx = Math.cos(rad), dy = Math.sin(rad);
+  const fx = g.player.x + 0.5, fy = g.player.y + 0.5;
+  let cleared = 0;
+  for (let d = 0; d <= maxDist; d += 0.5) {
+    const x = Math.floor(fx + dx * d), y = Math.floor(fy + dy * d);
+    if (!inB(x, y)) break;
+    const n = g.sandCells.length;
+    g.sandCells = g.sandCells.filter(s => !(s.x === x && s.y === y));
+    cleared += n - g.sandCells.length;
+  }
+  if (cleared > 0) spawnFloat(g, g.player.x, g.player.y, 'SAND CLEARED!', '#e8c34a', '沙幕散开！');
+}
+
+/* 爆炸等范围效果清除周围沙暴格 */
+function clearSandArea(g, x, y, r) {
+  if (!isPERSIAN(g) || !g.sandCells.length) return;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const cx = x + dx, cy = y + dy;
+      if (!inB(cx, cy)) continue;
+      g.sandCells = g.sandCells.filter(s => !(s.x === cx && s.y === cy));
+    }
+  }
+}
+
 /* 我方棋子（第三章打入的持驹）：静态防御单位，阻挡敌方并会被敌方吃掉 */
 function spawnAlly(g, type, x, y) {
   const p = {
@@ -909,7 +1203,9 @@ function onSlab(g, x, y) {
 function legalPlayerMoves(g) {
   const out = [];
   for (const [dx, dy] of DIRS) {
-    const x = g.player.x + dx, y = g.player.y + dy;
+    let x = g.player.x + dx, y = g.player.y + dy;
+    // 环城：棋盘上下左右互通（环面取模）
+    if (g.ring) { x = ((x % 8) + 8) % 8; y = ((y % 8) + 8) % 8; }
     if (!inB(x, y)) continue;
     if (blockedAt(g, x, y)) continue;
     out.push({ x, y });
@@ -934,14 +1230,21 @@ function legalPlayerMoves(g) {
 function legalEnemyMovesCore(g, p, vacating, decided) {
   const moves = [];
   const P = g.player;
-  const key = (x, y) => x + ',' + y;
+  // 环城（ring）：棋盘上下左右互通——所有走法坐标绕环面（模 8）归一
+  const wrap = !!g.ring;
+  const WX = (x) => wrap ? ((x % 8) + 8) % 8 : x;
+  const WY = (y) => wrap ? ((y % 8) + 8) % 8 : y;
+  const inBW = (x, y) => inB(WX(x), WY(y));
+  const key = (x, y) => WX(x) + ',' + WY(y);
   const blocked = (x, y) => {
+    x = WX(x); y = WY(y);
     const k = key(x, y);
     if (decided.has(k)) return true;
     if (vacating.has(k)) return false;
     return blockedAt(g, x, y);
   };
   const push = (x, y) => {
+    x = WX(x); y = WY(y);
     if (!inB(x, y)) return;
     if (x === P.x && y === P.y) {
       if (p.type !== 'king') moves.push({ x, y, capture: true });
@@ -954,7 +1257,10 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
   const slide = (dirs) => {
     for (const [dx, dy] of dirs) {
       let x = p.x + dx, y = p.y + dy;
-      while (inB(x, y)) {
+      let guard = 0;
+      while (inBW(x, y) && guard < 16) {
+        x = WX(x); y = WY(y);
+        guard++;
         if (x === P.x && y === P.y) {
           if (p.type !== 'king') moves.push({ x, y, capture: true });
           break;
@@ -967,6 +1273,28 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
       }
     }
   };
+  // 达阵（touchdown）：敌人为追击型——朝黑王逼近一步（贪心，避免重叠）
+  if (g.touchdown) {
+    // 白王：镇守底线不移位——按普通王走法威胁相邻格（仅用于攻击范围显示）
+    if (p.noMove) {
+      for (const [dx, dy] of DIRS) {
+        const x = p.x + dx, y = p.y + dy;
+        if (!inB(x, y)) continue;
+        if (x === P.x && y === P.y) { moves.push({ x, y, capture: true }); continue; }
+        if (!blocked(x, y)) moves.push({ x, y, capture: false });
+      }
+      return moves;
+    }
+    for (const [dx, dy] of DIRS) {
+      const x = p.x + dx, y = p.y + dy;
+      if (!inB(x, y)) continue;
+      if (x === P.x && y === P.y) { moves.push({ x, y, capture: true }); continue; }
+      if (!blocked(x, y) && Math.hypot(P.x - x, P.y - y) < Math.hypot(P.x - p.x, P.y - p.y)) {
+        moves.push({ x, y, capture: false });
+      }
+    }
+    return moves;
+  }
   // 第三章将棋：成金后按升级类型行动
   const effType = (isSHOGI(g) && p.promoted) ? (SHOGI_PROMO[p.type] || p.type) : p.type;
   // 歩/香/桂/銀 成金 → 金将走法（提前统一处理）
@@ -977,9 +1305,21 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
 
   switch (p.type) {
     case 'pawn': {
+      if (isPERSIAN(g)) {
+        // 兵（波斯）：前进 1 格；斜前 1 格吃子
+        const y1 = WY(p.y + 1);
+        if (inB(p.x, y1)) {
+          if (P.x === p.x && P.y === y1) { moves.push({ x: p.x, y: y1, capture: true }); break; }
+          const pc = pieceAt(g, p.x, y1);
+          if (pc && pc.friendly && !pc.protected) { moves.push({ x: p.x, y: y1, capture: true, ally: pc }); break; }
+          if (!blocked(p.x, y1)) moves.push({ x: p.x, y: y1, capture: false });
+        }
+        for (const dx of [-1, 1]) push(p.x + dx, p.y + 1);
+        break;
+      }
       if (isSHOGI(g)) {
         // 歩：向前一格（可吃玩家/我方棋子）
-        const y1 = p.y + 1;
+        const y1 = WY(p.y + 1);
         if (inB(p.x, y1)) {
           if (P.x === p.x && P.y === y1) { moves.push({ x: p.x, y: y1, capture: true }); break; }
           const pc = pieceAt(g, p.x, y1);
@@ -990,12 +1330,12 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
       }
       if (isXQ(g)) {
         // 兵：向前一步；过河（y>=4）后可横走；不能后退
-        const y1 = p.y + 1;
+        const y1 = WY(p.y + 1);
         const fwdBlocked = (inB(p.x, y1) && blocked(p.x, y1)) || (P.x === p.x && P.y === y1);
         if (inB(p.x, y1) && !fwdBlocked) moves.push({ x: p.x, y: y1, capture: false });
         if (p.y >= 4) {
           for (const dx of [-1, 1]) {
-            const lx = p.x + dx;
+            const lx = WX(p.x + dx);
             if (!inB(lx, p.y)) continue;
             if (lx === P.x && p.y === P.y) { moves.push({ x: lx, y: p.y, capture: true }); continue; }
             if (!blocked(lx, p.y)) moves.push({ x: lx, y: p.y, capture: false });
@@ -1003,14 +1343,15 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
         }
         break;
       }
-      const y1 = p.y + 1;
+      const y1 = WY(p.y + 1);
       const fwdBlocked = (inB(p.x, y1) && blocked(p.x, y1)) || (P.x === p.x && P.y === y1);
       if (inB(p.x, y1) && !fwdBlocked) moves.push({ x: p.x, y: y1, capture: false });
-      if (p.y <= 1 && !fwdBlocked && !(blocked(p.x, p.y + 2) || (P.x === p.x && P.y === p.y + 2))) {
-        moves.push({ x: p.x, y: p.y + 2, capture: false });
+      if (p.y <= 1 && !fwdBlocked && !(blocked(p.x, WY(p.y + 2)) || (P.x === p.x && P.y === WY(p.y + 2)))) {
+        moves.push({ x: p.x, y: WY(p.y + 2), capture: false });
       }
       for (const dx of [-1, 1]) {
-        if (inB(p.x + dx, p.y + 1) && P.x === p.x + dx && P.y === p.y + 1) {
+        const cx = WX(p.x + dx);
+        if (inB(cx, WY(p.y + 1)) && P.x === cx && P.y === WY(p.y + 1)) {
           moves.push({ x: P.x, y: P.y, capture: true });
         }
       }
@@ -1018,12 +1359,16 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
     }
     case 'lance': {
       // 香车：向前直线任意（可吃玩家/我方棋子）
-      for (let y = p.y + 1; y < 8; y++) {
-        if (P.x === p.x && P.y === y) { moves.push({ x: p.x, y, capture: true }); break; }
-        const pc = pieceAt(g, p.x, y);
-        if (pc && pc.friendly && !pc.protected) { moves.push({ x: p.x, y, capture: true, ally: pc }); break; }
-        if (blocked(p.x, y)) break;
-        moves.push({ x: p.x, y, capture: false });
+      let ly = p.y + 1, guard = 0;
+      while (guard < 8) {
+        ly = WY(ly); guard++;
+        if (!inB(p.x, ly)) break;
+        if (P.x === p.x && P.y === ly) { moves.push({ x: p.x, y: ly, capture: true }); break; }
+        const pc = pieceAt(g, p.x, ly);
+        if (pc && pc.friendly && !pc.protected) { moves.push({ x: p.x, y: ly, capture: true, ally: pc }); break; }
+        if (blocked(p.x, ly)) break;
+        moves.push({ x: p.x, y: ly, capture: false });
+        ly++;
       }
       break;
     }
@@ -1037,7 +1382,7 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
         // 马：日字走，蹩马腿
         for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) {
           const lx = p.x + dx, ly = p.y + dy;
-          if (!inB(lx, ly)) continue;
+          if (!inBW(lx, ly)) continue;
           const legX = Math.abs(dx) === 2 ? p.x + dx / 2 : p.x;
           const legY = Math.abs(dy) === 2 ? p.y + dy / 2 : p.y;
           if (blocked(legX, legY) || (legX === P.x && legY === P.y)) continue;
@@ -1058,6 +1403,26 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
       for (const [dx, dy] of [[0,1],[1,1],[-1,1],[1,0],[-1,0],[0,-1]]) push(p.x + dx, p.y + dy);
       break;
     }
+    case 'alfil': {
+      // 象（波斯）：田字对角跳 2 格（可越子，无塞象眼）
+      for (const [dx, dy] of [[2,2],[2,-2],[-2,2],[-2,-2]]) push(p.x + dx, p.y + dy);
+      break;
+    }
+    case 'fers': {
+      // 后（波斯）：斜走 1 格
+      for (const [dx, dy] of [[1,1],[1,-1],[-1,1],[-1,-1]]) push(p.x + dx, p.y + dy);
+      break;
+    }
+    case 'faras': {
+      // 马（波斯）：日字跳
+      for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) push(p.x + dx, p.y + dy);
+      break;
+    }
+    case 'rukh': {
+      // 车（波斯）：直线任意
+      slide([[1,0],[-1,0],[0,1],[0,-1]]);
+      break;
+    }
     case 'bishop': {
       if (isSHOGI(g)) {
         slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
@@ -1071,7 +1436,7 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
         // 相：田字走，塞象眼，不过河（红方上半场 y<=3）
         for (const [dx, dy] of [[2,2],[2,-2],[-2,2],[-2,-2]]) {
           const lx = p.x + dx, ly = p.y + dy;
-          if (!inB(lx, ly) || ly > 3) continue;
+          if (!inBW(lx, ly) || ly > 3) continue;
           const ex = p.x + dx / 2, ey = p.y + dy / 2;
           if (blocked(ex, ey) || (ex === P.x && ey === P.y)) continue;
           push(lx, ly);
@@ -1083,8 +1448,10 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
     case 'cannon': {
       // 炮：直线移动（路径全空）；吃子须隔一个炮架
       for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        let x = p.x + dx, y = p.y + dy, seen = false;
-        while (inB(x, y)) {
+        let x = p.x + dx, y = p.y + dy, seen = false, guard = 0;
+        while (inBW(x, y) && guard < 16) {
+          x = WX(x); y = WY(y);
+          guard++;
           const t = blocked(x, y);
           if (!seen) {
             if (x === P.x && y === P.y) break;          // 不能停在玩家格
@@ -1124,7 +1491,7 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
       if (isSHOGI(g)) {
         // 王将：8 方向 1 格（不攻击玩家，可吃我方棋子）
         for (const [dx, dy] of DIRS) {
-          const x = p.x + dx, y = p.y + dy;
+          const x = WX(p.x + dx), y = WY(p.y + dy);
           if (!inB(x, y)) continue;
           if (x === P.x && y === P.y) continue;
           const pc = pieceAt(g, x, y);
@@ -1155,7 +1522,7 @@ function legalEnemyMovesCore(g, p, vacating, decided) {
         break;
       }
       for (const [dx, dy] of DIRS) {
-        const x = p.x + dx, y = p.y + dy;
+        const x = WX(p.x + dx), y = WY(p.y + dy);
         if (!inB(x, y)) continue;
         if (x === P.x && y === P.y) continue;
         if (!blocked(x, y)) moves.push({ x, y, capture: false });
@@ -1310,8 +1677,9 @@ function elitePickMove(g, e) {
 }
 
 function threatMap(g) {
+  const H = (g.boardH || 8);
   const map = [];
-  for (let y = 0; y < 8; y++) map.push(new Array(8).fill(false));
+  for (let y = 0; y < H; y++) map.push(new Array(8).fill(false));
   for (const p of g.pieces) {
     if (p.e) {
       // 精英：落点一圈格子（2×2）都是威胁
@@ -1323,7 +1691,7 @@ function threatMap(g) {
       }
       continue;
     }
-    if (p.type === 'king') continue;
+    if (p.type === 'king' && !p.noMove) continue;   // 达阵白王（镇守底线）的威胁正常显示
     for (const m of legalEnemyMoves(g, p)) {
       if (!m.capture) map[m.y][m.x] = true;
     }
@@ -1422,14 +1790,28 @@ function killPiece(g, piece, src, silent) {
     // 进阶 X 逐鹿中原：双王需全部击杀才通关
     if (!g.pieces.some(p => p.type === 'king')) {
       g.floorCleared = true;
-      msg(g, 'THE WHITE KING IS DEAD!', '白王已死！');
+      if (g.touchdown) {
+        msg(g, 'TOUCHDOWN! KING CAPTURED!', '达阵！生擒白王！');
+        spawnFloat(g, piece.x, piece.y, 'TOUCHDOWN!', '#ffd75e', '达阵！');
+      } else {
+        msg(g, 'THE WHITE KING IS DEAD!', '白王已死！');
+      }
     } else {
       msg(g, 'A WHITE KING FALLS - ONE REMAINS!', '一名白王阵亡——还剩一名！');
     }
   }
+  // 第四章波斯 · 擒王（裸王即胜）：红方只剩王（无护卫）立即通关，不必杀王
+  if (isPERSIAN(g) && g.pieces.length > 0 && g.pieces.every(p => p.type === 'king')) {
+    g.floorCleared = true;
+    msg(g, 'BARE KING! THE ESCORT IS GONE!', '擒王！护卫已清光！');
+  }
 }
 
 function damagePiece(g, piece, dmg, src) {
+  // 第四章小沙暴：敌方受击伤害按与黑王的距离衰减（沙幕阻隔弹道）
+  if (isPERSIAN(g) && !piece.friendly && g.player) {
+    dmg = Math.max(1, Math.round(dmg * sandstormFactor(g, piece.x, piece.y)));
+  }
   piece.hp -= dmg;
   spawnFloat(g, piece.x, piece.y, '-' + dmg, '#ff7a6a');
   addShake(g, src === 'shot' ? 2 : 1);
@@ -1558,7 +1940,11 @@ function raycast(g, cx, cy, angleDeg, maxDistCells, limit) {
     if (sideX < sideY) { t = sideX; sideX += deltaX; mapX += stepX; }
     else { t = sideY; sideY += deltaY; mapY += stepY; }
     if (t > maxDistCells) break;
-    if (!inB(mapX, mapY)) break;
+    if (!inB(mapX, mapY)) {
+      // 环城：棋盘上下左右互通——弹道从边缘穿出后从对侧进入
+      if (g.ring) { mapX = ((mapX % 8) + 8) % 8; mapY = ((mapY % 8) + 8) % 8; }
+      else break;
+    }
     const ob = obstacleAt(g, mapX, mapY);
     if (ob) { hits.push({ kind:'obstacle', x:mapX, y:mapY, ob, dist:t }); break; }
     const pc = pieceAt(g, mapX, mapY);
@@ -1612,7 +1998,9 @@ function effectiveWeapon(g, w) {
 }
 
 function playerPx(g) {
-  return { x: BX + g.player.x * CELL + Math.floor(CELL / 2), y: BY + g.player.y * CELL + Math.floor(CELL / 2) };
+  // 达阵：世界 y 映射到视口行，瞄准/弹道始终锚定在棋盘上的黑王
+  const vy = (g && g.touchdown) ? g.player.y - camYFor(g) : g.player.y;
+  return { x: BX + g.player.x * CELL + Math.floor(CELL / 2), y: BY + vy * CELL + Math.floor(CELL / 2) };
 }
 
 function addTracer(g, angle, len, color, life) {
@@ -1640,6 +2028,8 @@ function fireRayWeapon(g, w, aimDeg) {
   for (let pi = 0; pi < angles.length; pi++) {
     const ang = angles[pi];
     const hits = raycast(g, cx, cy, ang, eff.range, limit);
+    // 第四章大沙暴：开火清除弹道路径上的沙暴覆盖格
+    clearSandAlong(g, ang, eff.range);
     for (const h of hits) {
       addTracer(g, ang, h.dist * CELL, '#ffd75e', 180);
       if (h.kind === 'obstacle') {
@@ -1687,6 +2077,7 @@ function fireFlame(g, w, aimDeg) {
     if (g.floorCleared) return;
   }
   // flame cone visuals
+  clearSandAlong(g, aimDeg, eff.range);   // 第四章大沙暴：火焰清开路径沙幕
   const p = playerPx(g);
   for (let i = 0; i < 14; i++) {
     const ang = aimDeg + (Math.random() * 2 - 1) * (eff.cone / 2);
@@ -1700,18 +2091,20 @@ function bombTargetFromAngle(g, aimDeg) {
   const rad = aimDeg * Math.PI / 180;
   let tx = Math.round(g.player.x + 3 * Math.cos(rad));
   let ty = Math.round(g.player.y + 3 * Math.sin(rad));
-  tx = clamp(tx, 0, 7); ty = clamp(ty, 0, 7);
+  const H = (g.boardH || 8);
+  tx = clamp(tx, 0, 7); ty = clamp(ty, 0, H - 1);
   return { x: tx, y: ty };
 }
 
 function bombClampTarget(g, tx, ty) {
   const dx = tx - g.player.x, dy = ty - g.player.y;
   const dist = Math.hypot(dx, dy);
+  const H = (g.boardH || 8);
   if (dist > 3) {
     tx = Math.round(g.player.x + 3 * dx / dist);
     ty = Math.round(g.player.y + 3 * dy / dist);
   }
-  return { x: clamp(tx, 0, 7), y: clamp(ty, 0, 7) };
+  return { x: clamp(tx, 0, 7), y: clamp(ty, 0, H - 1) };
 }
 
 async function fireBomber(g, w, aimDeg) {
@@ -1723,7 +2116,8 @@ async function fireBomber(g, w, aimDeg) {
   // one random bounce in any of the 8 directions
   const bd = DIRS[ri(0, 7)];
   let bx = tx + bd[0], by = ty + bd[1];
-  if (!inB(bx, by)) { bx = tx; by = ty; }
+  if (g.ring) { bx = ((bx % 8) + 8) % 8; by = ((by % 8) + 8) % 8; }
+  else if (!inB(bx, by)) { bx = tx; by = ty; }
 
   g.bomb = { ax: g.player.x, ay: g.player.y, bx: tx, by: ty, cx: bx, cy: by, t0: now(), dur: 380 };
   if (typeof sfx === 'function') sfx('bomb');
@@ -1733,6 +2127,7 @@ async function fireBomber(g, w, aimDeg) {
   let dmg = eff.dmg;
   if (g.stats.explosive) dmg += 1;
   explodeAtCell(g, bx, by, dmg);
+  clearSandArea(g, bx, by, 1);          // 第四章大沙暴：爆炸吹散周围沙幕
   await wait(g, 150);
 }
 
@@ -1762,6 +2157,12 @@ async function playerAction(g, kind, arg) {
       if (dragonMove) g.dragonMoveUsed = true;
       ok = true;
       if (typeof sfx === 'function') sfx('move');
+      // 达阵：杀到底线（y=31）即达阵通关
+      if (g.touchdown && g.player.y >= 31) {
+        g.floorCleared = true;
+        spawnFloat(g, g.player.x, g.player.y, 'TOUCHDOWN!', '#ffd75e', '达阵！');
+        msg(g, 'TOUCHDOWN! GOAL LINE REACHED!', '达阵！杀到底线！');
+      }
     }
   } else if (kind === 'fire') {
     const w = activeWeapon(g);
@@ -1783,6 +2184,7 @@ async function playerAction(g, kind, arg) {
     addShake(g, 3);
     if (typeof sfx === 'function') sfx('shot');
     if (shots === 2) msg(g, 'DOUBLE TAP!', '双连发！');
+    illuminateFiring(g);          // 夜袭：开火照亮开火范围
     await wait(g, 130);
     ok = true;
   } else if (kind === 'reload') {
@@ -1820,7 +2222,7 @@ async function playerAction(g, kind, arg) {
 }
 
 /* --------------------------------------------------------------- enemy phase */
-function typeOrder(t) { return { pawn:0, knight:1, bishop:2, rook:3, queen:4, king:5 }[t] || 9; }
+function typeOrder(t) { return { pawn:0, knight:1, bishop:2, rook:3, queen:4, king:5, alfil:2, fers:1, faras:1, rukh:3, lance:0, silver:1, gold:2 }[t] || 9; }
 
 async function tweenPiece(g, p, fx, fy, tx, ty, dur) {
   p.moving = { fx, fy, tx, ty, t0: now(), dur };
@@ -1884,6 +2286,16 @@ async function enemyPhase(g) {
     return;
   }
 
+  // 第四章大沙暴：每 SAND_INTERVAL 个敌方回合袭来一次
+  if (isPERSIAN(g)) {
+    if (g.sandTimer <= 0) {
+      g.sandTimer = SAND_INTERVAL;
+      sandStorm(g);
+    } else {
+      g.sandTimer--;
+    }
+  }
+
   // 第三章将棋：敌方打入——吃掉我方棋子后获得持驹，可放回棋盘
   if (isSHOGI(g) && g.enemyHand > 0 && Math.random() < 0.5) {
     const cells = [];
@@ -1918,7 +2330,7 @@ async function enemyPhase(g) {
      - 至少 2 个棋子一起移动（场上只剩 1 个可行动时除外）
      - 其余棋子本回合按兵不动 */
   const n = g.pieces.length;
-  const eligible = g.pieces.filter(p => !p.e && !p.friendly && !p.slowed && legalEnemyMoves(g, p).length > 0);
+  const eligible = g.pieces.filter(p => !p.e && !p.friendly && !p.slowed && !p.noMove && legalEnemyMoves(g, p).length > 0);
   const maxMovers = Math.max(2, Math.floor(n * 0.6));
   let count = Math.min(maxMovers, eligible.length);
   if (count < 2) count = Math.min(2, eligible.length);
@@ -2045,6 +2457,12 @@ function chooseCard(g, id) {
   const card = cardById(id);
   if (!card) return;
   applyCard(g, card);
+  // 达阵：每层奖励 2 张被动卡——选完第 1 张继续选第 2 张
+  if (g.touchdown && g.pendingCards > 1) {
+    g.pendingCards--;
+    if (typeof showCardOverlay === 'function') showCardOverlay(g);
+    return;
+  }
   g.floor++;
   spawnFloor(g);
   if (typeof hideCardOverlay === 'function') hideCardOverlay();
@@ -2053,6 +2471,12 @@ function chooseCard(g, id) {
 function skipCard(g) {
   if (g.player.hp < g.player.maxHp) g.player.hp++;
   msg(g, 'REST AND RECOVER +1 CROWN.', '休整恢复 +1 王冠');
+  // 达阵：第 1 张跳过（休整）后仍可再选第 2 张
+  if (g.touchdown && g.pendingCards > 1) {
+    g.pendingCards--;
+    if (typeof showCardOverlay === 'function') showCardOverlay(g);
+    return;
+  }
   g.floor++;
   spawnFloor(g);
   if (typeof hideCardOverlay === 'function') hideCardOverlay();
@@ -2136,6 +2560,24 @@ function relicMoves(g) {
           if (lx >= 3 && lx <= 5 && ly >= 6 && ly <= 8) add(lx, ly);
         }
         break;
+    }
+  } else if (isPERSIAN(g)) {
+    switch (t) {
+      case 'pawn':                                // 黑兵：前进（上）；斜前吃子
+        add(P.x, P.y - 1);
+        for (const dx of [-1, 1]) add(P.x + dx, P.y - 1);
+        break;
+      case 'alfil':                               // 黑象：田字对角跳 2
+        for (const [dx, dy] of [[2,2],[2,-2],[-2,2],[-2,-2]]) add(P.x + dx, P.y + dy);
+        break;
+      case 'fers':                                // 黑后：斜走 1
+        for (const [dx, dy] of [[1,1],[1,-1],[-1,1],[-1,-1]]) add(P.x + dx, P.y + dy);
+        break;
+      case 'faras':                               // 黑马：日字跳
+        for (const [dx, dy] of [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]]) add(P.x + dx, P.y + dy);
+        break;
+      case 'rukh': for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) slideAdd(dx, dy); break;
+      case 'king': for (const [dx, dy] of DIRS) add(P.x + dx, P.y + dy); break;
     }
   } else {
     switch (t) {
@@ -2319,17 +2761,21 @@ function skipItem(g) {
   if (typeof showCardOverlay === 'function') showCardOverlay(g);
 }
 
-/* ------------------------------------------------------ shogi tutorial */
+/* ------------------------------------------------------ tutorial */
 function showTutOverlay() {
   if (typeof document === 'undefined') return;
-  const o = document.getElementById('tutOverlay');
+  // 第四章波斯用独立教程层，其余（将棋）用原层
+  const id = (g && isPERSIAN(g)) ? 'tutOverlayPersian' : 'tutOverlay';
+  const o = document.getElementById(id);
   if (o) o.classList.remove('hidden');
 }
 
 function hideTutOverlay() {
   if (typeof document === 'undefined') return;
-  const o = document.getElementById('tutOverlay');
-  if (o) o.classList.add('hidden');
+  ['tutOverlay', 'tutOverlayPersian'].forEach(id => {
+    const o = document.getElementById(id);
+    if (o) o.classList.add('hidden');
+  });
 }
 
 async function endFloor(g) {
@@ -2345,12 +2791,19 @@ async function endFloor(g) {
   }
 
   if (g.autoPick) {
-    const card = rollCards()[0];
-    applyCard(g, card);
+    // 达阵：每层奖励 2 张被动卡
+    const n = g.touchdown ? 2 : 1;
+    for (let i = 0; i < n; i++) {
+      const card = rollCards()[0];
+      applyCard(g, card);
+    }
     g.floor++;
     spawnFloor(g);
     return;
   }
+
+  // 达阵：每层奖励 2 张被动卡（选完第 1 张再选第 2 张）
+  if (g.touchdown) g.pendingCards = 2;
 
   // 3/6/9 层结束：先选/替换主动道具，再选强化卡
   if (g.floor % 3 === 0 && typeof showItemOverlay === 'function') {
@@ -2462,6 +2915,54 @@ function drawXiangqiPieceBlack(c, type, px, py) {
   pxCircle(c, px, py, 7, '#2b2d3a');
   drawTextCJK(c, XQ_CHAR_BLACK[type] || '卒', px - 4, py - 4, '#e8e2cf', 1);
 }
+
+/* 波斯棋子（第四章）：经典国际象棋大头像剪影 + 波斯微调（红玉身 + 金新月 +
+   类型字母）——一眼认出棋子种类（象=主教帽、后=王冠、马=马头、车=城堡、王=十字王冠），
+   与圆币（象棋）、駒形（将棋）区分，红方主体色与第一张章剪影区分 */
+function drawPersianPiece(c, type, px, py) {
+  const shapes = pieceShapes(PERSIAN_SHAPE[type] || type);
+  const body = type === 'king' ? '#b23d3d' : '#c94f4f';
+  const shade = '#a13b3b';
+  const dark = '#7a2626';
+  const accent = PERSIAN_ACCENT[type] || '#ffd75e';
+  const pass = (color, ox, oy) => {
+    for (const s of shapes) {
+      if (s.t === 'r') pxRect(c, px + s.x + ox, py + s.y + oy, s.w, s.h, color);
+      else pxCircle(c, px + s.cx + ox, py + s.cy + oy, s.r, color);
+    }
+  };
+  pass(dark, -1, 0); pass(dark, 1, 0); pass(dark, 0, -1); pass(dark, 0, 1);
+  pass(body, 0, 0);
+  for (const s of shapes) {
+    if (s.t === 'r') pxRect(c, px + s.x, py + s.y + s.h - 1, s.w, 1, shade);
+  }
+  // 差异化头饰（波斯风格微调）
+  if (type === 'alfil') {                          // 象：主教帽裂口
+    pxRect(c, px - 1, py - 6, 1, 2, accent); pxRect(c, px, py - 7, 1, 1, accent);
+  } else if (type === 'rukh') {                    // 车：城垛
+    pxRect(c, px - 1, py - 2, 3, 1, accent); pxRect(c, px, py - 1, 1, 1, accent);
+  } else if (type === 'fers') {                    // 后：三层王冠
+    pxRect(c, px - 3, py - 6, 7, 2, accent);
+    pxRect(c, px - 3, py - 8, 1, 2, accent); pxRect(c, px, py - 8, 1, 2, accent); pxRect(c, px + 3, py - 8, 1, 2, accent);
+  } else if (type === 'king') {                    // 王：十字王冠 + 金环
+    pxRect(c, px - 3, py - 6, 7, 2, accent);
+    pxRect(c, px - 3, py - 8, 1, 2, accent); pxRect(c, px, py - 8, 1, 2, accent); pxRect(c, px + 3, py - 8, 1, 2, accent);
+    pxRect(c, px, py - 10, 1, 3, accent); pxRect(c, px - 1, py - 9, 3, 1, accent);
+  } else if (type === 'faras') {                   // 马：马耳
+    pxRect(c, px - 2, py - 6, 1, 1, accent); pxRect(c, px + 2, py - 6, 1, 1, accent);
+  }
+  // 金新月（波斯味）：棋子头顶
+  pxRect(c, px - 3, py - 12, 2, 1, accent);
+  pxRect(c, px - 4, py - 11, 2, 1, accent);
+  pxRect(c, px - 4, py - 10, 2, 1, accent);
+  pxRect(c, px - 3, py - 9, 1, 1, accent);
+  // 底座铭牌：类型字母（P/A/F/N/R/S）
+  pxRect(c, px - 4, py + 8, 9, 5, dark);
+  pxRect(c, px - 4, py + 8, 9, 1, shade);
+  drawText(c, PERSIAN_LETTER[type] || '?', px - 1, py + 8, '#f5e9d0', 1);
+  // 王（Shah）：金环
+  if (type === 'king') pxRing(c, px, py, 12, '#e8c34a');
+}
 /* 精英棋子：位于交叉点（格点），占据 2×2，金色大环 + 汉字 */
 /* 将棋棋子：伪梯形駒形（上宽下窄的五边形，尖端指向进攻方向）+ 汉字，
    一眼即知是将棋。红方（敌方）进攻向下 → 宽端朝上、尖端朝下；
@@ -2517,7 +3018,66 @@ function drawPos(o) {
 }
 
 function cellCenter(x, y) {
-  return { x: BX + x * CELL + Math.floor(CELL / 2), y: BY + y * CELL + Math.floor(CELL / 2) };
+  // 达阵：世界坐标 y 映射到视口行（camY 起 8 行）
+  const vy = (g && g.touchdown) ? y - g.camY : y;
+  return { x: BX + x * CELL + Math.floor(CELL / 2), y: BY + vy * CELL + Math.floor(CELL / 2) };
+}
+
+/* 达阵视口：当前显示 8 行的起始世界行 */
+function camYFor(g) {
+  if (!g.touchdown) return 0;
+  return clamp(g.player.y - 3, 0, (g.boardH || 8) - 8);
+}
+
+/* 棋盘世界坐标 → 画布像素（达阵按视口偏移，环城不做平移） */
+function cellRectAt(g, x, y) {
+  return { x: BX + x * CELL, y: BY + (g.touchdown ? y - g.camY : y) * CELL };
+}
+
+/* 夜袭视野半径：黑王身边基础 2 格敞亮（武器不再决定基础视野，改由开火照亮） */
+function nightLightRadius(g) {
+  return NIGHT_BASE_R;
+}
+
+/* 夜袭：开火照亮——覆盖当前武器射程内的所有格（短时） */
+function illuminateFiring(g) {
+  if (!g.night) return;
+  const w = activeWeapon(g);
+  const eff = effectiveWeapon(g, w);
+  const R = Math.min(7, eff.range + 1);
+  for (let y = 0; y < (g.boardH || 8); y++) {
+    for (let x = 0; x < 8; x++) {
+      if (wrapDist(g, { x, y }, g.player) <= R) g.litCells.push({ x, y, t0: now() });
+    }
+  }
+  if (g.litCells.length > 160) g.litCells.splice(0, g.litCells.length - 160);
+}
+
+/* 夜袭：格是否被照亮（基础 2 格敞亮 + 开火短时照亮） */
+function nightLit(g, x, y) {
+  if (!g.night) return true;
+  if (wrapDist(g, { x, y }, g.player) <= NIGHT_BASE_R) return true;
+  const t = now();
+  return g.litCells.some(l => l.x === x && l.y === y && t - l.t0 < NIGHT_LIT_MS);
+}
+
+function hiddenByNight(g, x, y) {
+  if (!g.night) return false;
+  return !nightLit(g, x, y);
+}
+
+/* 环城/夜袭共用的环面距离（8×8 取模最短距） */
+function wrapDist(g, a, b) {
+  if (!g.ring) return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+  const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+  return Math.max(Math.min(dx, 8 - dx), Math.min(dy, 8 - dy));
+}
+
+/* 达阵：世界行是否在当前 8 行视口内 */
+function inViewY(g, y) {
+  if (!g.touchdown) return true;
+  const v = y - g.camY;
+  return v >= 0 && v < 8;
 }
 
 function drawMiniCrown(c, x, y, col) {
@@ -2612,7 +3172,7 @@ function drawAim(g, c) {
   }
 
   const hit = aimPreviewTarget(g);
-  if (hit) {
+  if (hit && !hiddenByNight(g, hit.x, hit.y)) {
     const cc = cellCenter(hit.x, hit.y);
     const col = hit.kind === 'obstacle' ? '#c9a36a' : '#ff6a5a';
     pxRect(c, cc.x - 5, cc.y - 5, 3, 3, col);
@@ -2636,14 +3196,20 @@ function render(g) {
   pxRect(c, 0, 0, W, 22, '#0a0c12');
   pxRect(c, 0, 22, W, 1, '#2a2f3f');
 
-  const threat = (g.phase === 'player') ? threatMap(g) : null;
+  // 达阵视口跟随黑王（世界行 → 显示 8 行）
+  g.camY = camYFor(g);
+
+  // 夜袭：迷雾中不显示威胁格（看不见的危险才是危险）
+  const threat = (g.phase === 'player' && !g.night) ? threatMap(g) : null;
   const legal = (g.phase === 'player') ? legalPlayerMoves(g) : null;
   const xq = isXQ(g);
   const shogi = isSHOGI(g);
+  const persian = isPERSIAN(g);
 
-  for (let y = 0; y < 8; y++) {
+  for (let v = 0; v < 8; v++) {
+    const y = g.camY + v;                       // 世界行（达阵视口偏移）
     for (let x = 0; x < 8; x++) {
-      const tx = BX + x * CELL, ty = BY + y * CELL;
+      const tx = BX + x * CELL, ty = BY + v * CELL;
       const dark = (x + y) % 2 === 1;
       if (xq) {
         // 紫禁深宫：宫墙红 + 金线
@@ -2655,6 +3221,11 @@ function render(g) {
         pxRect(c, tx, ty, CELL, CELL, dark ? '#dccfa8' : '#e8dcc0');
         pxRect(c, tx, ty, CELL, 1, '#c4b48a');
         pxRect(c, tx, ty, 1, CELL, '#c4b48a');
+      } else if (persian) {
+        // 一千零一夜：沙漠金砖 + 金线
+        pxRect(c, tx, ty, CELL, CELL, dark ? '#b3954e' : '#d2b066');
+        pxRect(c, tx, ty, CELL, 1, '#8a6a2f');
+        pxRect(c, tx, ty, 1, CELL, '#8a6a2f');
       } else {
         pxRect(c, tx, ty, CELL, CELL, dark ? '#333847' : '#444a5e');
         pxRect(c, tx, ty, CELL, 1, '#252936');
@@ -2679,14 +3250,17 @@ function render(g) {
   }
   // 中国象棋：楚河汉界
   if (xq) {
-    pxRect(c, BX, BY + 3 * CELL, CELL * 8, CELL, '#241a0e');
-    pxRect(c, BX, BY + 3 * CELL, CELL * 8, 1, '#0d0a05');
-    pxRect(c, BX, BY + 4 * CELL - 1, CELL * 8, 1, '#0d0a05');
-    drawTextCJK(c, '楚河', BX + 10, BY + 3 * CELL + 8, 'rgba(232,195,74,0.65)', 1);
-    drawTextCJK(c, '汉界', BX + CELL * 8 - 30, BY + 3 * CELL + 8, 'rgba(232,195,74,0.65)', 1);
+    const r3 = cellRectAt(g, 0, 3), r4 = cellRectAt(g, 0, 4);
+    pxRect(c, BX, r3.y, CELL * 8, CELL, '#241a0e');
+    pxRect(c, BX, r3.y, CELL * 8, 1, '#0d0a05');
+    pxRect(c, BX, r4.y - 1, CELL * 8, 1, '#0d0a05');
+    drawTextCJK(c, '楚河', BX + 10, r3.y + 8, 'rgba(232,195,74,0.65)', 1);
+    drawTextCJK(c, '汉界', BX + CELL * 8 - 30, r3.y + 8, 'rgba(232,195,74,0.65)', 1);
     // 紫禁深宫：石板路（黑王/红帅在其上移动 +1）——与棋盘同色调的红砖石板
     for (const s of g.slabs || []) {
-      const tx = BX + s.x * CELL, ty = BY + s.y * CELL;
+      if (!inViewY(g, s.y)) continue;
+      const rr = cellRectAt(g, s.x, s.y);
+      const tx = rr.x, ty = rr.y;
       pxRect(c, tx + 2, ty + 2, CELL - 4, CELL - 4, '#9a3838');
       pxRect(c, tx + 4, ty + 4, CELL - 8, CELL - 8, '#a84040');
       pxRect(c, tx + 4, ty + 4, CELL - 8, 1, '#7a2626');
@@ -2715,18 +3289,23 @@ function render(g) {
   pxRect(c, BX - 2, BY - 2, 2, CELL * 8 + 4, '#0a0c12');
   pxRect(c, BX + CELL * 8, BY - 2, 2, CELL * 8 + 4, '#0a0c12');
 
-  // 精英 2×2 覆盖区高亮（金色底纹，落点一圈格子）
+  // 精英 2×2 攻击范围高亮（落点一圈格子）：红色危险区边框 + 底纹，
+  // 让"踏入即受攻击"的攻击范围一眼可见（红 = 危险，与威胁格同色系）
   if (xq) {
     for (const p of g.pieces) {
       if (!p.e) continue;
-      for (let dy = 0; dy <= 1; dy++) {
-        for (let dx = 0; dx <= 1; dx++) {
-          const tx = BX + (p.x - 1 + dx) * CELL, ty = BY + (p.y - 1 + dy) * CELL;
-          pxRect(c, tx, ty, CELL, CELL, 'rgba(232,195,74,0.16)');
-          pxRect(c, tx + 1, ty + 1, 2, 2, 'rgba(232,195,74,0.5)');
-          pxRect(c, tx + CELL - 3, ty + CELL - 3, 2, 2, 'rgba(232,195,74,0.5)');
-        }
-      }
+      const r0 = cellRectAt(g, p.x - 1, p.y - 1);
+      const ex0 = r0.x, ey0 = r0.y;
+      pxRect(c, ex0, ey0, CELL * 2, CELL * 2, 'rgba(216,74,74,0.26)');
+      pxRect(c, ex0, ey0, CELL * 2, 1, '#d84a4a');
+      pxRect(c, ex0, ey0 + CELL * 2 - 1, CELL * 2, 1, '#d84a4a');
+      pxRect(c, ex0, ey0, 1, CELL * 2, '#d84a4a');
+      pxRect(c, ex0 + CELL * 2 - 1, ey0, 1, CELL * 2, '#d84a4a');
+      // 四角亮红角标
+      pxRect(c, ex0, ey0, 3, 3, '#ff6a5a');
+      pxRect(c, ex0 + CELL * 2 - 3, ey0, 3, 3, '#ff6a5a');
+      pxRect(c, ex0, ey0 + CELL * 2 - 3, 3, 3, '#ff6a5a');
+      pxRect(c, ex0 + CELL * 2 - 3, ey0 + CELL * 2 - 3, 3, 3, '#ff6a5a');
     }
   }
 
@@ -2734,7 +3313,9 @@ function render(g) {
 
   // obstacles (destructible brick walls / indestructible steel / sakura trees)
   for (const o of g.obstacles) {
-    const tx = BX + o.x * CELL, ty = BY + o.y * CELL;
+    if (!inViewY(g, o.y)) continue;
+    const orr = cellRectAt(g, o.x, o.y);
+    const tx = orr.x, ty = orr.y;
     if (o.sakura) {
       // 樱花树：可摧毁（约等于贴图不同的箱子）
       pxRect(c, tx + 4, ty + 12, 4, 10, '#7a5a38');
@@ -2785,18 +3366,23 @@ function render(g) {
   g.flashes = g.flashes.filter(f => tNow - f.t0 < f.life);
   for (const f of g.flashes) {
     if (!inB(f.x, f.y)) continue;
+    if (!inViewY(g, f.y)) continue;
     const k = 1 - (tNow - f.t0) / f.life;
-    const tx = BX + f.x * CELL, ty = BY + f.y * CELL;
+    const frr = cellRectAt(g, f.x, f.y);
+    const tx = frr.x, ty = frr.y;
     pxRect(c, tx, ty, CELL, CELL, 'rgba(255,230,150,' + (0.5 * k).toFixed(2) + ')');
     if (f.r > 0) pxRect(c, tx - 1, ty - 1, CELL + 2, CELL + 2, 'rgba(255,178,71,' + (0.4 * k).toFixed(2) + ')');
   }
 
   // pieces
   for (const p of g.pieces) {
+    if (!inViewY(g, p.y)) continue;   // 达阵：视口外的棋子不渲染
     const d = drawPos(p);
+    // 夜袭：视野外的敌人不可见（迷雾掩蔽）
+    if (hiddenByNight(g, p.x, p.y)) continue;
     if (p.e) {
       // 精英画在交叉点（格点）上
-      const gx = BX + d.x * CELL, gy = BY + d.y * CELL;
+      const gx = BX + d.x * CELL, gy = BY + (d.y - g.camY) * CELL;
       drawElitePiece(c, p, gx, gy);
       if (p.hp < p.maxHp) {
         const w = Math.max(1, Math.round(12 * p.hp / p.maxHp));
@@ -2808,6 +3394,7 @@ function render(g) {
     const cc = cellCenter(d.x, d.y);
     if (shogi) drawShogiPiece(c, p.type, cc.x, cc.y, !!p.friendly, !!p.promoted);
     else if (xq) drawXiangqiPiece(c, p.type, cc.x, cc.y);
+    else if (persian) drawPersianPiece(c, p.type, cc.x, cc.y);
     else drawPieceSprite(c, p.type, true, cc.x, cc.y);
     if (p.friendly && p.protected) {   // 打入棋保护期（吸引回合）：蓝色光环
       pxRing(c, cc.x, cc.y, 12, 'rgba(124,192,255,0.9)');
@@ -2875,7 +3462,9 @@ function render(g) {
   if (g.relicMode && g.phase === 'player') {
     const moves = relicMoves(g);
     for (const m of moves) {
-      const tx = BX + m.x * CELL, ty = BY + m.y * CELL;
+      if (!inViewY(g, m.y)) continue;
+      const rr = cellRectAt(g, m.x, m.y);
+      const tx = rr.x, ty = rr.y;
       const target = pieceAt(g, m.x, m.y);
       if (target) {
         pxRect(c, tx, ty, CELL, CELL, 'rgba(216,74,74,0.3)');
@@ -2889,10 +3478,12 @@ function render(g) {
 
   // 打入瞄准（第三章）：高亮所有空格
   if (g.dropMode && g.phase === 'player') {
-    for (let y = 0; y < 8; y++) {
+    for (let y = 0; y < (g.boardH || 8); y++) {
+      if (!inViewY(g, y)) continue;
       for (let x = 0; x < 8; x++) {
         if (blockedAt(g, x, y)) continue;
-        const tx = BX + x * CELL, ty = BY + y * CELL;
+        const drr = cellRectAt(g, x, y);
+        const tx = drr.x, ty = drr.y;
         pxRect(c, tx + 1, ty + 1, CELL - 2, CELL - 2, 'rgba(124,192,255,0.3)');
         pxRect(c, tx + 4, ty + 4, CELL - 8, CELL - 8, 'rgba(124,192,255,0.4)');
       }
@@ -2913,6 +3504,8 @@ function render(g) {
   // floating text
   g.floats = g.floats.filter(f => tNow - f.t0 < f.life);
   for (const f of g.floats) {
+    if (!inViewY(g, f.y)) continue;
+    if (g.night && hiddenByNight(g, f.x, f.y)) continue;   // 夜袭：迷雾外的事件不可见
     const k = 1 - (tNow - f.t0) / f.life;
     const cc = cellCenter(f.x, f.y);
     const enW = f.text.length * 4 * UI_BIG;
@@ -2923,6 +3516,106 @@ function render(g) {
     drawText(c, f.text, cc.x - totalW / 2, fy, f.color, UI_BIG);
     if (f.zh) drawTextCJK(c, f.zh, cc.x - totalW / 2 + enW + 4, fy + UI_BIG * 5 - CJK_FONT_PX, '#e8e2cf', 1);
     c.globalAlpha = 1;
+  }
+
+  // 第四章波斯 · 小沙暴：全屏常驻精细飘沙粒子（多层细沙 + 风丝）
+  if (persian) {
+    const t = tNow;
+    // 细沙层 1：大量微小沙粒随风横飘、微微起伏
+    for (let i = 0; i < 54; i++) {
+      const seed = i * 61.8;
+      const spd = 0.012 + (seed % 7) * 0.0022;                 // 每粒风速略不同
+      const px = ((seed * 7.3 + t * spd) % (W + 40)) - 20;
+      const py = BY - 14 + ((seed * 3.7 + t * 0.005 + Math.sin(t * 0.0011 + seed * 0.7) * 12) % (CELL * 8 + 28));
+      c.globalAlpha = 0.18 + ((seed * 13) % 10) * 0.04;
+      pxRect(c, Math.round(px), Math.round(py), 1, 1, i % 5 === 0 ? '#ecd29a' : (i % 3 === 0 ? '#dcbd78' : '#c3a05c'));
+    }
+    // 细沙层 2：少量 2px 沙粒 + 风中细丝（更亮、更快）
+    for (let i = 0; i < 14; i++) {
+      const seed = i * 91.7;
+      const px = ((seed * 11.3 + t * (0.028 + (seed % 5) * 0.003)) % (W + 50)) - 25;
+      const py = BY - 14 + ((seed * 5.1 + t * 0.009 + Math.sin(t * 0.0008 + seed) * 15) % (CELL * 8 + 28));
+      c.globalAlpha = 0.4;
+      pxRect(c, Math.round(px), Math.round(py), 2, 1, i % 4 === 0 ? '#efd9a4' : '#d5b26c');
+      if (i % 4 === 1) pxRect(c, Math.round(px - 6), Math.round(py), 5, 1, 'rgba(213,178,108,0.25)');  // 风丝尾迹
+    }
+    c.globalAlpha = 1;
+  }
+
+  // 第四章波斯 · 大沙暴：掩蔽格沙幕（盖住格子与其中棋子，动态流沙）
+  if (persian && g.sandCells && g.sandCells.length) {
+    const jitter = Math.floor(tNow / 90) % 3;
+    for (const s of g.sandCells) {
+      if (!inViewY(g, s.y)) continue;
+      const srr = cellRectAt(g, s.x, s.y);
+      const tx = srr.x, ty = srr.y;
+      pxRect(c, tx, ty, CELL, CELL, 'rgba(148,116,64,0.9)');
+      // 流动沙纹（细密、双相位错动）
+      for (let i = 0; i < 7; i++) {
+        const sx = tx + ((s.x * 7 + s.y * 13 + i * 3 + jitter * 2) % (CELL - 4)) + 2;
+        const sy = ty + ((s.y * 11 + i * 4 + (jitter + i) % 2) % (CELL - 4)) + 2;
+        pxRect(c, sx, sy, i % 3 === 0 ? 2 : 3, 1, i % 3 === 0 ? 'rgba(232,207,154,0.9)' : 'rgba(196,158,96,0.75)');
+      }
+      // 边角高亮：沙丘轮廓
+      pxRect(c, tx, ty, CELL, 1, 'rgba(236,210,154,0.35)');
+      pxRect(c, tx, ty + CELL - 1, CELL, 1, 'rgba(90,66,32,0.5)');
+    }
+  }
+
+  // 环城：四边绕行提示箭头（脉冲微光，提示上下左右互通）
+  if (g.ring) {
+    const pa = 0.28 + 0.14 * Math.sin(tNow * 0.004);
+    const my = BY + 4 * CELL - 1, mx = BX + 4 * CELL - 1;
+    const col = 'rgba(255,215,94,' + pa.toFixed(2) + ')';
+    // 左缘（指向左=绕到右侧）
+    pxRect(c, BX, my - 2, 2, 1, col); pxRect(c, BX + 1, my - 1, 1, 1, col);
+    pxRect(c, BX, my + 1, 2, 1, col); pxRect(c, BX + 1, my, 1, 1, col);
+    // 右缘
+    pxRect(c, BX + 8 * CELL - 2, my - 2, 2, 1, col); pxRect(c, BX + 8 * CELL - 2, my - 1, 1, 1, col);
+    pxRect(c, BX + 8 * CELL - 2, my + 1, 2, 1, col); pxRect(c, BX + 8 * CELL - 2, my, 1, 1, col);
+    // 上缘
+    pxRect(c, mx - 2, BY, 1, 2, col); pxRect(c, mx - 1, BY + 1, 1, 1, col);
+    pxRect(c, mx + 1, BY, 1, 2, col); pxRect(c, mx, BY + 1, 1, 1, col);
+    // 下缘
+    pxRect(c, mx - 2, BY + 8 * CELL - 2, 1, 2, col); pxRect(c, mx - 1, BY + 8 * CELL - 1, 1, 1, col);
+    pxRect(c, mx + 1, BY + 8 * CELL - 2, 1, 2, col); pxRect(c, mx, BY + 8 * CELL - 1, 1, 1, col);
+  }
+
+  // 夜袭：视野迷雾——黑王身边 2 格敞亮，外面全黑；开火短时照亮开火范围后渐黑
+  if (g.night) {
+    const t = tNow;
+    if (g.litCells.length) g.litCells = g.litCells.filter(l => t - l.t0 < NIGHT_LIT_MS);
+    for (let v = 0; v < 8; v++) {
+      const y = g.camY + v;
+      for (let x = 0; x < 8; x++) {
+        const d = wrapDist(g, { x, y }, g.player);
+        let a = 0;
+        if (d <= NIGHT_BASE_R) a = 0;                       // 核心敞亮
+        else if (d === NIGHT_BASE_R + 1) a = 0.45;          // 柔边过渡
+        else {
+          a = 0.95;                                         // 外面全黑
+          const lit = g.litCells.find(l => l.x === x && l.y === y);
+          if (lit) {
+            const k = Math.min(1, (t - lit.t0) / NIGHT_LIT_MS);   // 0 刚照亮 → 1 熄灭
+            a = 0.2 + k * 0.75;                             // 开火后渐黑
+          }
+        }
+        if (a > 0) pxRect(c, BX + x * CELL, BY + v * CELL, CELL, CELL, 'rgba(4,6,12,' + a + ')');
+      }
+    }
+  }
+
+  // 达阵：右侧进度条——实时显示黑王在长条棋盘中的位置（0 → 31）
+  if (g.touchdown) {
+    const Hh = (g.boardH || 8) - 1;
+    const bx = BX + 8 * CELL + 3, by0 = BY + 6, bh = 8 * CELL - 12;
+    pxRect(c, bx, by0, 3, bh, '#161a26');
+    const frac = clamp(g.player.y / Hh, 0, 1);
+    const fy = by0 + Math.round(bh * frac);
+    pxRect(c, bx, by0, 3, Math.max(0, fy - by0), 'rgba(255,215,94,0.4)');
+    pxRect(c, bx - 1, fy - 2, 5, 4, '#fff7d6');           // 黑王当前位置标记
+    drawText(c, '0', bx - 8, by0 + 1, '#6b7188', 1);
+    drawText(c, String(Hh), bx - 14, by0 + bh - 5, '#6b7188', 1);
   }
 
   renderPanel(g);
@@ -2950,8 +3643,8 @@ function renderTopStrip(g) {
   pxRect(c, W - 7, 3, 1, 15, '#3a4052');
   drawText(c, 'MENU', W - 38, 6, '#e8c34a', UI_SMALL);
   drawTextCJK(c, '菜单', W - 38 + 4 * 4 + 4, 6 + UI_SMALL * 5 - CJK_FONT_PX, '#b58a2e', 1);
-  // 第三章：将棋规则教程按钮（MENU 左侧）
-  if (isSHOGI(g)) {
+  // 第三/四章：规则教程按钮（MENU 左侧）
+  if (isSHOGI(g) || isPERSIAN(g)) {
     pxRect(c, W - 92, 3, 44, 15, '#171a24');
     pxRect(c, W - 92, 3, 44, 1, '#3a4052');
     pxRect(c, W - 92, 17, 44, 1, '#3a4052');
@@ -3276,11 +3969,15 @@ function showEndOverlay(g) {
       title.style.color = '#d84a4a';
       note.textContent = '白色棋子的攻势无穷无尽。即将返回主界面——换一套 Build 再爬一次吧！';
     } else if (g.won) {
-      title.textContent = g.chapter === 2 ? 'CHAPTER 2 CLEARED · 第二章通关' : 'CHAPTER 1 CLEARED · 第一章通关';
+      const winTxt = {
+        2: ['CHAPTER 2 CLEARED · 第二章通关', '黑王横扫楚河汉界，红帅俯首！即将返回主界面；想无限挑战？选择「无尽模式」再战！'],
+        3: ['CHAPTER 3 CLEARED · 第三章通关', '黑王征服平安京，王将俯首！即将返回主界面；想无限挑战？选择「无尽模式」再战！'],
+        4: ['CHAPTER 4 CLEARED · 第四章通关', '黑王横扫沙漠王宫，擒王功成！即将返回主界面；想无限挑战？选择「无尽模式」再战！']
+      };
+      const wt = winTxt[g.chapter] || ['CHAPTER 1 CLEARED · 第一章通关', '黑王征服了第一章！即将返回主界面；想无限挑战？选择「无尽模式」再战！'];
+      title.textContent = wt[0];
       title.style.color = '#e8c34a';
-      note.textContent = g.chapter === 2
-        ? '黑王横扫楚河汉界，红帅俯首！即将返回主界面；想无限挑战？选择「无尽模式」再战！'
-        : '黑王征服了第一章！即将返回主界面；想无限挑战？选择「无尽模式」再战！';
+      note.textContent = wt[1];
     }
     stats.innerHTML =
       '模式 <b>' + g.modeId.toUpperCase() + '</b> · 层数 <b>' + g.floor + '</b> · 击杀 <b>' + g.kills + '</b> · ' +
@@ -3354,7 +4051,8 @@ function boardCellFromEvent(e) {
   const x = Math.floor((sx - BX) / CELL);
   const y = Math.floor((sy - BY) / CELL);
   if (x < 0 || x > 7 || y < 0 || y > 7) return null;
-  return { x, y };
+  // 达阵：视口行 → 世界行（点击移动/炸弹落点锚定到黑王所在的真实坐标）
+  return (g && g.touchdown) ? { x, y: camYFor(g) + y } : { x, y };
 }
 
 function aimAngleAt(sx, sy) {
@@ -3384,7 +4082,8 @@ function overlayOpen() {
          document.getElementById('endOverlay').classList.contains('hidden') === false ||
          document.getElementById('startOverlay').classList.contains('hidden') === false ||
          (document.getElementById('itemOverlay') && document.getElementById('itemOverlay').classList.contains('hidden') === false) ||
-         (document.getElementById('tutOverlay') && document.getElementById('tutOverlay').classList.contains('hidden') === false);
+         (document.getElementById('tutOverlay') && document.getElementById('tutOverlay').classList.contains('hidden') === false) ||
+         (document.getElementById('tutOverlayPersian') && document.getElementById('tutOverlayPersian').classList.contains('hidden') === false);
 }
 
 function handleCanvasClick(e) {
@@ -3397,8 +4096,8 @@ function handleCanvasClick(e) {
     returnToMenu();
     return;
   }
-  // 顶栏 TUTOR（第三章）：打开将棋规则教程
-  if (isSHOGI(g) && sx >= W - 92 && sx < W - 48 && sy < 20) {
+  // 顶栏 TUTOR（第三/四章）：打开规则教程
+  if ((isSHOGI(g) || isPERSIAN(g)) && sx >= W - 92 && sx < W - 48 && sy < 20) {
     showTutOverlay();
     return;
   }
@@ -3487,7 +4186,9 @@ function handleTouchEnd(e) {
   const ang = Math.atan2(dy, dx);
   const dirIdx = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
   const [vx, vy] = DIRS[dirIdx];
-  const tx = g.player.x + vx, ty = g.player.y + vy;
+  let tx = g.player.x + vx, ty = g.player.y + vy;
+  // 环城：滑出边界即绕到对面（黑王也能环城）
+  if (g.ring) { tx = ((tx % 8) + 8) % 8; ty = ((ty % 8) + 8) % 8; }
   if (inB(tx, ty) && !blockedAt(g, tx, ty)) {
     suppressClickUntil = now() + 500;
     playerAction(g, 'move', { x: tx, y: ty });
@@ -3523,7 +4224,9 @@ function handleKey(e) {
   if (d == null) return;
   if (g.phase !== 'player' || g.over || overlayOpen()) return;
   e.preventDefault();
-  const tx = g.player.x + DIRS[d][0], ty = g.player.y + DIRS[d][1];
+  let tx = g.player.x + DIRS[d][0], ty = g.player.y + DIRS[d][1];
+  // 环城：方向键出界即绕到对面（黑王也能环城）
+  if (g.ring) { tx = ((tx % 8) + 8) % 8; ty = ((ty % 8) + 8) % 8; }
   if (inB(tx, ty) && !blockedAt(g, tx, ty)) playerAction(g, 'move', { x: tx, y: ty });
 }
 
@@ -3596,11 +4299,12 @@ function refreshStartState() {
   const modeNote = document.getElementById('modeNote');
   if (!play) return;
   const ch = selChapter != null ? CHAPTERS.find(c => c.id === selChapter) : null;
-  // 规则提示：第一章国际象棋 / 第二章中国象棋 / 第三章将棋
+  // 规则提示：第一章国际象棋 / 第二章中国象棋 / 第三章将棋 / 第四章波斯
   if (modeNote) {
     modeNote.textContent = ch
       ? (ch.id === 2 ? '第二章 · 中国象棋规则（兵/马/相/仕/车/炮/帅 + 精英）'
          : ch.id === 3 ? '第三章 · 将棋规则（歩/香/桂/銀/金/角/飛/王 + 成金/打入）'
+         : ch.id === 4 ? '第四章 · 波斯象棋规则（兵/象/后/马/车/王 + 擒王/沙暴）'
          : '第一章 · 国际象棋规则（兵/马/象/车/后/王 + 铭牌标识）')
       : '请先选择章节';
   }
@@ -3695,6 +4399,8 @@ if (typeof document !== 'undefined') {
     document.getElementById('btnSkip').addEventListener('click', () => { if (g) skipCard(g); });
     document.getElementById('btnItemSkip').addEventListener('click', () => { if (g) skipItem(g); });
     document.getElementById('btnTutClose').addEventListener('click', hideTutOverlay);
+    const btnTut2 = document.getElementById('btnTutClose2');
+    if (btnTut2) btnTut2.addEventListener('click', hideTutOverlay);
     buildChapterList();
     buildAdvButtons();
 
@@ -3741,6 +4447,8 @@ if (typeof module !== 'undefined' && module.exports) {
     useRemnantSlot, chooseRemnant, relicMoves, useItem,
     showItemOverlay, hideItemOverlay, chooseItem, skipItem,
     spawnXiangqiFloor, eliteMoves, elitePickMove, playerInElite,
+    spawnPersianFloor, spawnTouchdownFloor, touchdownPool, sandStorm, sandstormFactor,
+    clearSandAlong, clearSandArea, isPERSIAN, nightLightRadius, hiddenByNight, camYFor,
     selectChapter, selectMode, startSelected, returnToMenu, spawnBase, cycleBonus,
     selectAdvance, useDrop, chooseDrop, showTutOverlay, hideTutOverlay, spawnAlly
   };

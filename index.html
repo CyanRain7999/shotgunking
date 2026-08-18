@@ -262,6 +262,9 @@
       <button class="modebtn" data-mode="obstacle"><b>障碍模式</b><span>随机生成可破坏障碍</span></button>
       <button class="modebtn" data-mode="sniper"><b>狙击模式</b><span>2° 精度·无限射程·高伤害</span></button>
       <button class="modebtn" data-mode="endless"><b>无尽模式</b><span>无限循环·敌人逐循环+1生命</span></button>
+      <button class="modebtn" data-mode="ring"><b>环城模式</b><span>棋盘上下左右互通（环面）</span></button>
+      <button class="modebtn" data-mode="night"><b>夜袭模式</b><span>视野迷雾·照亮比攻击范围大一圈并渐黑</span></button>
+      <button class="modebtn" data-mode="touchdown"><b>达阵模式</b><span>宽8长32长条棋盘·达阵到底线·每层+2被动</span></button>
     </div>
     <div class="zh" id="modeNote">请先选择章节</div>
     <div class="zh" style="color:#8d93a8;letter-spacing:2px;">— 进阶难度 · ASCENSION —</div>
@@ -336,6 +339,25 @@
       <br><small>本作为 8×8 棋盘改编版；樱花树可摧毁。</small>
     </div>
     <button class="btn gold" id="btnTutClose">知道了 ✕</button>
+  </div>
+  <!-- 波斯象棋规则教程（第四章） -->
+  <div id="tutOverlayPersian" class="overlay hidden">
+    <div class="logo" style="font-size:clamp(14px,2.4vw,22px);">SHATRANJ RULES · 波斯象棋规则</div>
+    <div class="zh legend" style="max-width:720px;text-align:left;line-height:1.9;color:#c8cdd8;">
+      <b style="color:#e8c34a;">目标：</b>红方棋子偏弱——清光护卫、把红方杀到<b>只剩王</b>（擒王）即通关，不必杀王！
+      <br><b style="color:#e8c34a;">走法</b>（红方在上、向前=向下，红色菱形宝石棋子 + 字母）：
+      <br>· 兵 P：向前 1 格，斜前 1 格吃子
+      <br>· 象 A（Alfil）：田字对角跳 2 格（可越子）
+      <br>· 后 F（Fers）：斜走 1 格（很弱）
+      <br>· 马 N（Faras）：日字跳 2+1
+      <br>· 车 R（Rukh）：直线任意
+      <br>· 王 S（Shah）：八方各 1 格
+      <br><b style="color:#e8c34a;">沙暴：</b>小沙暴常驻——距离越远，子弹伤害越低（每格 -12%，最低 50%）；
+      大沙暴周期性席卷棋盘，<b>掩蔽棋盘格</b>（沙幕盖住格子与其中棋子，行动不受影响）；
+      <b>开火可清除攻击路径上的沙幕</b>，爆炸可吹散周围沙幕。
+      <br><small>小沙暴让霰弹枪、火焰喷射器这类近战武器更吃香——靠近了打！</small>
+    </div>
+    <button class="btn gold" id="btnTutClose2">知道了 ✕</button>
   </div>
 </div>
 <script src="game.js"></script>
